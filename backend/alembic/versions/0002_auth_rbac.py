@@ -17,6 +17,7 @@ depends_on = None
 
 def upgrade() -> None:
     user_role = postgresql.ENUM("ADMIN", "INTERVIEWER", "CANDIDATE", name="user_role")
+    existing_user_role = postgresql.ENUM("ADMIN", "INTERVIEWER", "CANDIDATE", name="user_role", create_type=False)
     user_role.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -25,7 +26,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(length=320), nullable=False),
         sa.Column("full_name", sa.String(length=120), nullable=False),
         sa.Column("hashed_password", sa.String(length=255), nullable=False),
-        sa.Column("role", user_role, nullable=False),
+        sa.Column("role", existing_user_role, nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
@@ -49,7 +50,7 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("role", user_role, nullable=False),
+        sa.Column("role", existing_user_role, nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"], ondelete="CASCADE"),
