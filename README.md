@@ -1,6 +1,6 @@
 # Nexterview
 
-Nexterview is the foundation for an AI-native engineering interview platform. This increment adds real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, and role-based access control on top of the FastAPI, PostgreSQL, Redis, and Next.js production scaffold.
+Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, and backend-only AI scenario generation.
 
 ## Current Scope
 
@@ -15,12 +15,18 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - Protected backend routes:
   - `GET /api/dashboard`
   - `GET /api/admin/users` for `ADMIN` users
+- Interview management endpoints for `ADMIN` and `INTERVIEWER` users:
+  - `POST /api/interviews`
+  - `GET /api/interviews`
+  - `GET /api/interviews/{id}`
+  - `POST /api/interviews/{id}/generate-scenario`
 - Users, organizations, and organization memberships
+- Interviews and stored generated scenarios
+- OpenAI Responses API integration on the backend with Pydantic structured output validation
+- Graceful deterministic scenario fallback when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, and protected dashboard route
-- Seed script with demo users
-
-Interviews are intentionally not implemented in this increment.
+- Frontend login, register, auth state, protected dashboard route, and interviewer management route
+- Seed script with demo users and a sample generated interview scenario
 
 ## Architecture
 
@@ -47,6 +53,7 @@ DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/nexterview
 REDIS_URL=redis://localhost:6379/0
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_REQUEST_TIMEOUT_SECONDS=30
 JWT_SECRET=replace-with-a-long-random-secret
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
@@ -62,7 +69,7 @@ Frontend variables:
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-Do not use `change-me` secrets outside local development.
+Do not use `change-me` secrets outside local development. `OPENAI_API_KEY` is read only by the backend; never add it to `frontend/.env` or expose it through `NEXT_PUBLIC_*` variables.
 
 ## Local Setup
 
@@ -123,9 +130,9 @@ Nexterview123!
 
 Accounts:
 
-- `admin@nexterview.local` with `ADMIN`
-- `interviewer@nexterview.local` with `INTERVIEWER`
-- `candidate@nexterview.local` with `CANDIDATE`
+- `admin@nexterview.dev` with `ADMIN`
+- `interviewer@nexterview.dev` with `INTERVIEWER`
+- `candidate@nexterview.dev` with `CANDIDATE`
 
 ## API Contracts
 
@@ -164,6 +171,50 @@ Authorization: Bearer <access_token>
 
 The auth response includes `access_token`, `token_type`, and the authenticated user with organization memberships.
 
+Create an interview:
+
+```http
+POST /api/interviews
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "role_title": "Backend Platform Engineer",
+  "seniority": "Senior",
+  "stack": ["Python", "FastAPI", "PostgreSQL", "Redis"],
+  "difficulty": "Intermediate",
+  "interview_type": "Backend debugging",
+  "duration_minutes": 75,
+  "allowed_ai_mode": "Pair Programmer Mode",
+  "evaluation_criteria": [
+    "Correctness and edge-case handling",
+    "Debugging process and verification discipline",
+    "AI collaboration quality and ability to validate suggestions"
+  ]
+}
+```
+
+Generate and store a scenario:
+
+```http
+POST /api/interviews/{id}/generate-scenario
+Authorization: Bearer <access_token>
+```
+
+The response includes:
+
+- `title`
+- `business_context`
+- `technical_requirements`
+- `starter_code`
+- `expected_behavior`
+- `logs_or_bug_report`
+- `hidden_evaluation_points`
+- `candidate_instructions`
+- `interviewer_rubric`
+
+The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. If the OpenAI key is absent or the provider call fails, the backend returns and stores a realistic deterministic fallback scenario with `generation_source` set to `fallback`.
+
 ## Verification
 
 Backend syntax check:
@@ -200,7 +251,14 @@ Auth smoke test:
 ```bash
 curl -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@nexterview.local","password":"Nexterview123!"}'
+  -d '{"email":"admin@nexterview.dev","password":"Nexterview123!"}'
+```
+
+Interview scenario smoke test:
+
+```bash
+curl -X POST http://localhost:8000/api/interviews/<interview_id>/generate-scenario \
+  -H "Authorization: Bearer <access_token>"
 ```
 
 ## Deployment Notes

@@ -1,4 +1,4 @@
-import type { AuthResponse, DashboardResponse, User } from "@/lib/types";
+import type { AuthResponse, DashboardResponse, Interview, InterviewCreateInput, Scenario, User } from "@/lib/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -68,4 +68,23 @@ export function getCurrentUser(token: string): Promise<User> {
 
 export function getDashboard(token: string): Promise<DashboardResponse> {
   return apiRequest<DashboardResponse>("/api/dashboard", { token });
+}
+
+export function getInterviews(token: string): Promise<Interview[]> {
+  return apiRequest<Interview[]>("/api/interviews", { token });
+}
+
+export function createInterview(token: string, input: InterviewCreateInput): Promise<Interview> {
+  return apiRequest<Interview>("/api/interviews", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export function generateScenario(token: string, interviewId: string): Promise<Scenario> {
+  return apiRequest<Scenario>(`/api/interviews/${interviewId}/generate-scenario`, {
+    method: "POST",
+    token,
+  });
 }

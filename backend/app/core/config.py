@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/nexterview"
     redis_url: str = "redis://localhost:6379/0"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4.1-mini"
+    openai_request_timeout_seconds: float = 30.0
     frontend_url: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000"
     jwt_secret: str = "change-me"
