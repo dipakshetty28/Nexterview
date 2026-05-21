@@ -59,7 +59,8 @@ JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 BCRYPT_ROUNDS=12
 FRONTEND_URL=http://localhost:3000
-CORS_ORIGINS=http://localhost:3000
+BACKEND_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+CORS_ORIGINS=
 ENVIRONMENT=development
 ```
 
@@ -70,6 +71,8 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
 Do not use `change-me` secrets outside local development. `OPENAI_API_KEY` is read only by the backend; never add it to `frontend/.env` or expose it through `NEXT_PUBLIC_*` variables.
+
+`BACKEND_CORS_ORIGINS` is the production-ready CORS allowlist. Keep local browser origins in it for development, and set deployed frontend origins explicitly in production.
 
 ## Local Setup
 
@@ -96,6 +99,29 @@ Run the frontend:
 ```bash
 cd frontend
 npm install
+npm run dev
+```
+
+Windows Command Prompt quick start:
+
+```cmd
+cd C:\Users\dipak\OneDrive\Documents\Nexterview
+docker compose up -d postgres redis
+cd backend
+py -3.11 -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+set DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/nexterview
+.venv\Scripts\alembic upgrade head
+.venv\Scripts\python -m scripts.seed
+.venv\Scripts\uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+In a second Command Prompt window:
+
+```cmd
+cd C:\Users\dipak\OneDrive\Documents\Nexterview\frontend
+npm install
+set NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 npm run dev
 ```
 
@@ -244,6 +270,22 @@ Health check:
 
 ```bash
 curl http://localhost:8000/api/health
+```
+
+CORS preflight check from Windows Command Prompt:
+
+```cmd
+curl -i -X OPTIONS http://localhost:8000/api/interviews ^
+  -H "Origin: http://localhost:3000" ^
+  -H "Access-Control-Request-Method: GET" ^
+  -H "Access-Control-Request-Headers: authorization,content-type"
+```
+
+The response should include:
+
+```text
+access-control-allow-origin: http://localhost:3000
+access-control-allow-credentials: true
 ```
 
 Auth smoke test:

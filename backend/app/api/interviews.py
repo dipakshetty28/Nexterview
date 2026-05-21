@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_roles
@@ -45,14 +45,31 @@ def _get_interview_for_user(db: Session, interview_id: UUID, user: User) -> Inte
             detail="Your account is not attached to an organization.",
         )
 
-    interview = db.execute(
-        select(Interview)
-        .options(selectinload(Interview.scenario))
-        .where(Interview.id == interview_id, Interview.organization_id.in_(organization_ids))
-    ).scalar_one_or_none()
+    try:
+        interview = db.execute(
+            select(Interview)
+            .options(selectinload(Interview.scenario))
+            .where(Interview.id == interview_id, Interview.organization_id.in_(organization_ids))
+        ).scalar_one_or_none()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load interview.",
+        ) from exc
     if interview is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview was not found.")
     return interview
+
+
+def _raise_schema_not_ready(exc: ProgrammingError) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Interview database tables are not available. Run Alembic migrations with `alembic upgrade head`.",
+    ) from exc
 
 
 @router.post("", response_model=InterviewRead, status_code=status.HTTP_201_CREATED)
@@ -77,6 +94,9 @@ def create_interview(
     db.add(interview)
     try:
         db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to create interview.")
@@ -93,12 +113,22 @@ def list_interviews(
     if not organization_ids:
         return []
 
-    interviews = db.execute(
-        select(Interview)
-        .options(selectinload(Interview.scenario))
-        .where(Interview.organization_id.in_(organization_ids))
-        .order_by(Interview.created_at.desc())
-    ).scalars()
+    try:
+        interviews = db.execute(
+            select(Interview)
+            .options(selectinload(Interview.scenario))
+            .where(Interview.organization_id.in_(organization_ids))
+            .order_by(Interview.created_at.desc())
+        ).scalars()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load interviews.",
+        ) from exc
     return [InterviewRead.model_validate(interview) for interview in interviews]
 
 
@@ -142,6 +172,9 @@ def generate_scenario(
 
     try:
         db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to store scenario.")

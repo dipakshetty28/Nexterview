@@ -11,8 +11,8 @@ type ApiRequestOptions = {
 export class ApiError extends Error {
   readonly status: number;
 
-  constructor(message: string, status: number) {
-    super(message);
+  constructor(message: string, status: number, options?: ErrorOptions) {
+    super(message, options);
     this.name = "ApiError";
     this.status = status;
   }
@@ -27,12 +27,17 @@ async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Pro
     headers.Authorization = `Bearer ${options.token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      cache: "no-store",
+    });
+  } catch (error) {
+    throw new ApiError(`Unable to reach the API at ${API_BASE_URL}.`, 0, { cause: error });
+  }
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
