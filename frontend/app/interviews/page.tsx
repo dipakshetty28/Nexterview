@@ -8,7 +8,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiError, createCandidateInvite, createInterview, generateScenario, getInterviews } from "@/lib/api";
-import type { Interview, InterviewCreateInput } from "@/lib/types";
+import type { Interview, InterviewCreateInput, ProjectFile, ScenarioProject } from "@/lib/types";
 
 const DEFAULT_CRITERIA = [
   "Correctness and edge-case handling",
@@ -39,6 +39,8 @@ const DEFAULT_FORM: InterviewFormState = {
   evaluation_criteria: DEFAULT_CRITERIA,
 };
 
+const DEFAULT_INVITE_EMAIL = "candidate@nexterview.dev";
+
 function splitCommaList(value: string): string[] {
   return value
     .split(",")
@@ -64,6 +66,52 @@ function toCreateInput(form: InterviewFormState): InterviewCreateInput {
     allowed_ai_mode: form.allowed_ai_mode,
     evaluation_criteria: splitLineList(form.evaluation_criteria),
   };
+}
+
+function fileTone(file: ProjectFile): string {
+  if (file.is_hidden) {
+    return "border-amber-900/60 bg-amber-950/20 text-amber-100";
+  }
+  if (!file.is_editable) {
+    return "border-slate-700 bg-slate-950 text-slate-300";
+  }
+  return "border-cyan-900/50 bg-cyan-950/20 text-cyan-100";
+}
+
+function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
+  return (
+    <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-100">{project.project_name}</h4>
+          <p className="mt-1 text-xs text-slate-500">
+            {project.framework ?? "Project"} / {project.package_manager ?? "package manager"} / {project.files.length} files
+          </p>
+        </div>
+        <div className="grid gap-1 text-xs text-slate-400 md:text-right">
+          {project.install_command ? <span>Install: {project.install_command}</span> : null}
+          {project.run_command ? <span>Run: {project.run_command}</span> : null}
+          {project.test_command ? <span>Test: {project.test_command}</span> : null}
+        </div>
+      </div>
+      <div className="grid gap-2">
+        {project.files.map((file) => (
+          <details className={`rounded-md border ${fileTone(file)}`} key={file.path}>
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+              <span>{file.path}</span>
+              <span className="ml-2 text-xs opacity-70">
+                {file.language} / {file.file_type}
+                {file.is_hidden ? " / hidden" : ""}
+              </span>
+            </summary>
+            <pre className="max-h-80 overflow-auto border-t border-inherit bg-slate-950 p-3 text-xs leading-5 text-slate-200">
+              {file.content}
+            </pre>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function InterviewsContent() {
@@ -119,6 +167,7 @@ function InterviewsContent() {
     try {
       const created = await createInterview(token, toCreateInput(form));
       setInterviews((current) => [created, ...current]);
+      setInviteEmails((current) => ({ ...current, [created.id]: DEFAULT_INVITE_EMAIL }));
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to create interview.";
       setError(message);
@@ -154,7 +203,7 @@ function InterviewsContent() {
       return;
     }
 
-    const candidateEmail = inviteEmails[interviewId]?.trim();
+    const candidateEmail = (inviteEmails[interviewId] ?? DEFAULT_INVITE_EMAIL).trim();
     if (!candidateEmail) {
       setError("Enter a candidate email before generating an invite.");
       return;
@@ -331,12 +380,12 @@ function InterviewsContent() {
                     onChange={(event) => updateInviteEmail(interview.id, event.target.value)}
                     placeholder="candidate@nexterview.dev"
                     type="email"
-                    value={inviteEmails[interview.id] ?? ""}
+                    value={inviteEmails[interview.id] ?? DEFAULT_INVITE_EMAIL}
                   />
                 </label>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <Button
-                    disabled={inviteGeneratingId === interview.id}
+                    disabled={inviteGeneratingId === interview.id || !interview.scenario}
                     onClick={() => void handleCreateInvite(interview.id)}
                     type="button"
                     variant="secondary"
@@ -352,6 +401,9 @@ function InterviewsContent() {
                     </a>
                   ) : null}
                 </div>
+                {!interview.scenario ? (
+                  <p className="text-xs text-slate-500">Generate the scenario first, then create the candidate invite link.</p>
+                ) : null}
               </div>
 
               {interview.scenario ? (
@@ -382,6 +434,7 @@ function InterviewsContent() {
                   <pre className="max-h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-slate-300">
                     {interview.scenario.starter_code}
                   </pre>
+                  {interview.scenario.project ? <ProjectFilesPreview project={interview.scenario.project} /> : null}
                 </div>
               ) : null}
             </article>

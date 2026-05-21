@@ -17,7 +17,7 @@ import {
   saveSessionEvent,
   submitSessionSolution,
 } from "@/lib/api";
-import type { AIMessage, CandidateSession, Submission, TestRunResult } from "@/lib/types";
+import type { AIMessage, CandidateSession, ProjectFile, ScenarioProject, Submission, TestRunResult } from "@/lib/types";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -70,6 +70,39 @@ function languageForStack(stack: string[]): string {
     return "typescript";
   }
   return "javascript";
+}
+
+function fileLabel(file: ProjectFile): string {
+  return `${file.language} / ${file.file_type}${file.is_editable ? "" : " / read-only"}`;
+}
+
+function CandidateProjectPreview({ project }: { project: ScenarioProject }) {
+  return (
+    <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
+      <h3 className="text-sm font-semibold text-slate-100">Project files</h3>
+      <p className="mt-2 text-xs leading-5 text-slate-500">
+        {project.project_name} / {project.framework ?? "Project"} / {project.files.length} files
+      </p>
+      <div className="mt-3 grid gap-1 text-xs text-slate-400">
+        {project.install_command ? <span>Install: {project.install_command}</span> : null}
+        {project.run_command ? <span>Run: {project.run_command}</span> : null}
+        {project.test_command ? <span>Test: {project.test_command}</span> : null}
+      </div>
+      <div className="mt-3 grid gap-2">
+        {project.files.map((file) => (
+          <details className="rounded-md border border-slate-800 bg-slate-950" key={file.path}>
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-200">
+              <span>{file.path}</span>
+              <span className="ml-2 text-slate-500">{fileLabel(file)}</span>
+            </summary>
+            <pre className="max-h-64 overflow-auto border-t border-slate-800 p-3 text-xs leading-5 text-slate-300">
+              {file.content}
+            </pre>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 const markdownComponents: Components = {
@@ -439,6 +472,8 @@ function CandidateSessionContent() {
                   {session.scenario.logs_or_bug_report}
                 </pre>
               </section>
+
+              {session.scenario.project ? <CandidateProjectPreview project={session.scenario.project} /> : null}
             </aside>
 
             <section className="grid min-h-[720px] grid-rows-[auto_minmax(420px,1fr)_auto] overflow-hidden rounded-md border border-slate-800 bg-slate-900/70">

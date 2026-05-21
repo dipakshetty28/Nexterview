@@ -186,7 +186,20 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert session["interview_id"] == interview_id
     assert session["scenario"]["candidate_instructions"]
     assert "hidden_evaluation_points" not in session["scenario"]
+    assert "hidden_rubric" not in session["scenario"]
     assert "interviewer_rubric" not in session["scenario"]
+    assert session["scenario"]["project"]["project_name"] == "orders-review-api"
+    candidate_files = session["scenario"]["project"]["files"]
+    assert candidate_files
+    assert all(project_file["is_editable"] is True for project_file in candidate_files)
+    assert {project_file["path"] for project_file in candidate_files} >= {
+        "app/main.py",
+        "app/services/orders.py",
+        "app/data/orders.json",
+        "tests/test_orders.py",
+        "README.md",
+    }
+    assert "tests/test_orders_hidden.py" not in {project_file["path"] for project_file in candidate_files}
 
     session_response = client.get(
         f"/api/sessions/{session['id']}",
@@ -334,6 +347,9 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     submission = submit_response.json()
     assert submission["code"] == edited_code
     assert submission["notes"] == notes
+    submitted_paths = {submitted_file["path"] for submitted_file in submission["submitted_files"]}
+    assert "app/main.py" in submitted_paths
+    assert "tests/test_orders_hidden.py" not in submitted_paths
 
     submitted_session_response = client.get(
         f"/api/sessions/{session['id']}",

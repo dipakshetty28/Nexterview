@@ -36,6 +36,8 @@ class GeneratedProjectFile(BaseModel):
     is_editable: bool = True
     is_hidden: bool = False
 
+    model_config = ConfigDict(extra="forbid")
+
     @field_validator("path")
     @classmethod
     def validate_path(cls, value: str) -> str:
@@ -67,6 +69,8 @@ class GeneratedScenarioProject(BaseModel):
     framework: str | None = Field(default=None, max_length=120)
     files: list[GeneratedProjectFile] = Field(min_length=1, max_length=80)
 
+    model_config = ConfigDict(extra="forbid")
+
     @field_validator("stack")
     @classmethod
     def strip_stack(cls, value: list[str]) -> list[str]:
@@ -93,6 +97,90 @@ class GeneratedScenarioProject(BaseModel):
         paths = [project_file.path for project_file in self.files]
         if len(paths) != len(set(paths)):
             raise ValueError("Project files must use unique paths.")
+        return self
+
+
+class AIGeneratedScenarioDetails(BaseModel):
+    title: str = Field(min_length=8, max_length=180)
+    business_context: str = Field(min_length=40)
+    candidate_task_summary: str = Field(min_length=20)
+    bug_description: str = Field(min_length=20)
+    feature_request: str = Field(min_length=20)
+    expected_behavior: str = Field(min_length=20)
+    validation_instructions: str = Field(min_length=20)
+    candidate_instructions: str = Field(min_length=40)
+    hidden_rubric: str = Field(min_length=40)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator(
+        "title",
+        "business_context",
+        "candidate_task_summary",
+        "bug_description",
+        "feature_request",
+        "expected_behavior",
+        "validation_instructions",
+        "candidate_instructions",
+        "hidden_rubric",
+    )
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class AIGeneratedProjectMetadata(BaseModel):
+    project_name: str = Field(min_length=2, max_length=140)
+    stack: str = Field(min_length=2, max_length=200)
+    framework: str = Field(min_length=2, max_length=120)
+    package_manager: str = Field(min_length=2, max_length=80)
+    install_command: str = Field(min_length=2, max_length=500)
+    run_command: str = Field(min_length=2, max_length=500)
+    test_command: str = Field(min_length=2, max_length=500)
+    entrypoint: str = Field(min_length=1, max_length=500)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator(
+        "project_name",
+        "stack",
+        "framework",
+        "package_manager",
+        "install_command",
+        "run_command",
+        "test_command",
+        "entrypoint",
+    )
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("entrypoint")
+    @classmethod
+    def validate_entrypoint(cls, value: str) -> str:
+        return _clean_project_path(value)
+
+
+class AIGeneratedProjectEnvelope(BaseModel):
+    scenario: AIGeneratedScenarioDetails
+    project: AIGeneratedProjectMetadata
+    files: list[GeneratedProjectFile] = Field(min_length=5, max_length=12)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_project_contract(self) -> AIGeneratedProjectEnvelope:
+        paths = {project_file.path for project_file in self.files}
+        if self.project.entrypoint not in paths:
+            raise ValueError("The project entrypoint must match one generated file path.")
+        if not any(project_file.file_type == ProjectFileType.DATA and project_file.path.endswith(".json") for project_file in self.files):
+            raise ValueError("Generated projects must include at least one JSON seed data file.")
+        if not any(project_file.file_type in {ProjectFileType.TEST, ProjectFileType.HIDDEN_TEST} for project_file in self.files):
+            raise ValueError("Generated projects must include at least one test or validation file.")
+        if not any(project_file.path in {"README.md", "TASK.md"} for project_file in self.files):
+            raise ValueError("Generated projects must include README.md or TASK.md.")
+        if not any(project_file.file_type == ProjectFileType.SOURCE for project_file in self.files):
+            raise ValueError("Generated projects must include at least one source file.")
         return self
 
 
@@ -126,6 +214,30 @@ class ScenarioProjectRead(BaseModel):
     files: list[ProjectFileRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateProjectFileRead(BaseModel):
+    path: str
+    content: str
+    language: str
+    file_type: str
+    is_editable: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateScenarioProjectRead(BaseModel):
+    project_name: str
+    stack: list[str]
+    framework: str | None
+    package_manager: str | None
+    install_command: str | None
+    run_command: str | None
+    test_command: str | None
+    entrypoint: str | None
+    files: list[CandidateProjectFileRead] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

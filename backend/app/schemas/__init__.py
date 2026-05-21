@@ -16,6 +16,11 @@ from app.schemas.invite import (
 )
 from app.schemas.interview import InterviewCreateRequest, InterviewRead
 from app.schemas.project import (
+    AIGeneratedProjectEnvelope,
+    AIGeneratedProjectMetadata,
+    AIGeneratedScenarioDetails,
+    CandidateProjectFileRead,
+    CandidateScenarioProjectRead,
     GeneratedProjectFile,
     GeneratedScenarioProject,
     ProjectFileRead,
@@ -29,7 +34,12 @@ __all__ = [
     "AuthResponse",
     "AICopilotRequest",
     "AICopilotResponse",
+    "AIGeneratedProjectEnvelope",
+    "AIGeneratedProjectMetadata",
+    "AIGeneratedScenarioDetails",
     "AIMessageRead",
+    "CandidateProjectFileRead",
+    "CandidateScenarioProjectRead",
     "GeneratedScenario",
     "GeneratedProjectFile",
     "GeneratedScenarioProject",

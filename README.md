@@ -31,7 +31,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `POST /api/sessions/{id}/submit`
 - Users, organizations, and organization memberships
 - Interviews, invite tokens, interview sessions, stored generated scenarios, scenario projects, project files, session file snapshots, telemetry events, AI messages, and submissions
-- OpenAI Responses API integration on the backend with Pydantic structured output validation
+- OpenAI Responses API integration on the backend with strict Pydantic JSON validation for generated repo projects
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
 - Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate interview room with markdown AI copilot
@@ -261,7 +261,9 @@ The response includes:
 - `interviewer_rubric`
 - optional `project` metadata with stack, commands, entrypoint, package manager, framework, and generated files
 
-The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Generated repo projects are stored as `scenario_projects` and `project_files`. When a candidate starts an interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a realistic deterministic fallback scenario with `generation_source` set to `fallback`.
+The AI generation response must be strict JSON shaped as `{ "scenario": ..., "project": ..., "files": [...] }`. The backend validates that payload with Pydantic, requires 5 to 12 files, requires a JSON seed data file, requires a test or validation file, and requires `README.md` or `TASK.md`. Supported generation targets are React + Next.js, Python + FastAPI, and Node.js + Express; unknown stacks fall back to a generic TypeScript/Node prompt.
+
+The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Generated repo projects are stored as `scenario_projects` and `project_files`. When a candidate starts an interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a deterministic FastAPI orders project with an intentional quantity-calculation bug and a status-filter feature request.
 
 Generate a candidate invite link:
 
@@ -298,7 +300,7 @@ GET /api/sessions/{id}
 Authorization: Bearer <candidate_access_token>
 ```
 
-The session response includes the candidate-safe task scenario, `latest_code`, `notes`, `last_autosaved_at`, `ai_messages`, and the final `submission` when one exists.
+The session response includes the candidate-safe task scenario, visible generated project files, `latest_code`, `notes`, `last_autosaved_at`, `ai_messages`, and the final `submission` when one exists. Candidate endpoints do not include hidden rubrics, hidden evaluation points, interviewer rubrics, or hidden project files.
 
 Save a candidate room event:
 
