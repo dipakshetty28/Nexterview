@@ -1,9 +1,9 @@
-import type { AuthResponse, DashboardResponse, User } from "@/lib/types";
+import type { AuthResponse, DashboardResponse, Interview, InterviewInput, InterviewListResponse, User } from "@/lib/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 type ApiRequestOptions = {
-  method?: "GET" | "POST";
+  method?: "DELETE" | "GET" | "PATCH" | "POST";
   body?: unknown;
   token?: string;
 };
@@ -34,9 +34,18 @@ async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Pro
     cache: "no-store",
   });
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const detail = typeof payload?.detail === "string" ? payload.detail : "Request failed.";
+    const detail =
+      typeof payload?.detail === "string"
+        ? payload.detail
+        : Array.isArray(payload?.detail)
+          ? payload.detail.map((item: { msg?: string }) => item.msg).filter(Boolean).join(" ")
+          : "Request failed.";
     throw new ApiError(detail, response.status);
   }
 
@@ -68,4 +77,27 @@ export function getCurrentUser(token: string): Promise<User> {
 
 export function getDashboard(token: string): Promise<DashboardResponse> {
   return apiRequest<DashboardResponse>("/api/dashboard", { token });
+}
+
+export function listInterviews(token: string): Promise<InterviewListResponse> {
+  return apiRequest<InterviewListResponse>("/api/interviews", { token });
+}
+
+export function createInterview(token: string, input: InterviewInput): Promise<Interview> {
+  return apiRequest<Interview>("/api/interviews", {
+    method: "POST",
+    body: input,
+    token,
+  });
+}
+
+export function getInterview(token: string, interviewId: string): Promise<Interview> {
+  return apiRequest<Interview>(`/api/interviews/${interviewId}`, { token });
+}
+
+export function deleteInterview(token: string, interviewId: string): Promise<void> {
+  return apiRequest<void>(`/api/interviews/${interviewId}`, {
+    method: "DELETE",
+    token,
+  });
 }

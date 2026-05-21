@@ -30,7 +30,7 @@ def client() -> Generator[TestClient, None, None]:
         raise RuntimeError("Auth integration tests must not run against SQLite.")
 
     engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
 
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)

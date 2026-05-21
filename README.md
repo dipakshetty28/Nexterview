@@ -1,6 +1,6 @@
 # Nexterview
 
-Nexterview is the foundation for an AI-native engineering interview platform. This increment adds real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, and role-based access control on top of the FastAPI, PostgreSQL, Redis, and Next.js production scaffold.
+Nexterview is the foundation for an AI-native engineering interview platform. It now includes authenticated organization access plus interviewer interview management for manually authored scenarios.
 
 ## Current Scope
 
@@ -15,18 +15,18 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - Protected backend routes:
   - `GET /api/dashboard`
   - `GET /api/admin/users` for `ADMIN` users
+  - `GET /api/interviews` for `ADMIN` and `INTERVIEWER` users
 - Users, organizations, and organization memberships
+- Interviews, scenarios, and interview sessions
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, and protected dashboard route
-- Seed script with demo users
-
-Interviews are intentionally not implemented in this increment.
+- Frontend login, register, auth state, protected dashboard, create interview, and interview detail routes
+- Seed script with demo users and a sample interview
 
 ## Architecture
 
 ```text
 frontend/   Next.js App Router UI and auth state
-backend/    FastAPI API, SQLAlchemy models, Alembic migrations, tests
+backend/    FastAPI API, SQLAlchemy models, Alembic migrations, seed scripts, tests
 postgres    Primary relational database
 redis       Local Redis service reserved for future queues/session events
 ```
@@ -72,6 +72,8 @@ Start PostgreSQL and Redis:
 docker compose up -d postgres redis
 ```
 
+When running backend commands from a local virtual environment, use `localhost` in `DATABASE_URL`. Docker-only service names such as `postgres` resolve only inside Compose containers.
+
 Run the backend:
 
 ```bash
@@ -80,7 +82,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
-python scripts/seed.py
+python -m scripts.seed
 uvicorn app.main:app --reload
 ```
 
@@ -110,7 +112,7 @@ The backend container runs Alembic migrations before starting Uvicorn.
 To seed demo users in Docker:
 
 ```bash
-docker compose exec backend python scripts/seed.py
+docker compose exec backend python -m scripts.seed
 ```
 
 ## Demo Credentials
@@ -123,9 +125,9 @@ Nexterview123!
 
 Accounts:
 
-- `admin@nexterview.local` with `ADMIN`
-- `interviewer@nexterview.local` with `INTERVIEWER`
-- `candidate@nexterview.local` with `CANDIDATE`
+- `admin@nexterview.dev` with `ADMIN`
+- `interviewer@nexterview.dev` with `INTERVIEWER`
+- `candidate@nexterview.dev` with `CANDIDATE`
 
 ## API Contracts
 
@@ -164,6 +166,49 @@ Authorization: Bearer <access_token>
 
 The auth response includes `access_token`, `token_type`, and the authenticated user with organization memberships.
 
+List interviews visible to the current interviewer/admin:
+
+```http
+GET /api/interviews
+Authorization: Bearer <access_token>
+```
+
+Create an interview with a manually authored scenario:
+
+```http
+POST /api/interviews
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "title": "Backend Debugging Loop",
+  "role_title": "Senior Backend Engineer",
+  "seniority": "SENIOR",
+  "stack": ["Python", "FastAPI", "PostgreSQL"],
+  "interview_type": "BACKEND_DEBUGGING",
+  "difficulty": "HARD",
+  "duration_minutes": 75,
+  "ai_mode": "DEBUGGING_ASSISTANT",
+  "scenario": {
+    "title": "Retry loop creates duplicate payments",
+    "business_context": "A payment service creates duplicate transactions when processor timeouts happen during retries.",
+    "candidate_instructions": "Find the root cause, explain the failure mode, and propose a safe fix.",
+    "technical_requirements": "Preserve idempotency keys across retries and prevent duplicate transaction records.",
+    "evaluation_rubric": "Assess root-cause analysis, verification discipline, safeguards, and communication."
+  }
+}
+```
+
+Interview management endpoints:
+
+- `GET /api/interviews`
+- `POST /api/interviews`
+- `GET /api/interviews/{id}`
+- `PATCH /api/interviews/{id}`
+- `DELETE /api/interviews/{id}`
+
+Interviews are always scoped to the authenticated user's organization memberships. Candidates cannot use interviewer management endpoints.
+
 ## Verification
 
 Backend syntax check:
@@ -176,7 +221,7 @@ python -m compileall app scripts tests
 Backend tests require PostgreSQL and do not use SQLite:
 
 ```bash
-createdb nexterview_test
+docker exec nexterview-postgres-1 createdb -U postgres nexterview_test
 cd backend
 TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/nexterview_test pytest
 ```
@@ -200,7 +245,7 @@ Auth smoke test:
 ```bash
 curl -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@nexterview.local","password":"Nexterview123!"}'
+  -d '{"email":"admin@nexterview.dev","password":"Nexterview123!"}'
 ```
 
 ## Deployment Notes

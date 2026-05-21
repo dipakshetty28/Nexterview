@@ -11,6 +11,7 @@ from app.db.base import Base, TimestampMixin
 from app.models.user import UserRole
 
 if TYPE_CHECKING:
+    from app.models.interview import Interview
     from app.models.user import User
 
 
@@ -23,6 +24,11 @@ class Organization(TimestampMixin, Base):
 
     members: Mapped[list[OrganizationMember]] = relationship(
         "OrganizationMember",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+    interviews: Mapped[list[Interview]] = relationship(
+        "Interview",
         back_populates="organization",
         cascade="all, delete-orphan",
     )

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.interview import Interview, InterviewSession, Scenario
     from app.models.organization import OrganizationMember
 
 
@@ -38,4 +39,19 @@ class User(TimestampMixin, Base):
         "OrganizationMember",
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    created_interviews: Mapped[list[Interview]] = relationship(
+        "Interview",
+        back_populates="created_by",
+        foreign_keys="Interview.created_by_user_id",
+    )
+    created_scenarios: Mapped[list[Scenario]] = relationship(
+        "Scenario",
+        back_populates="created_by",
+        foreign_keys="Scenario.created_by_user_id",
+    )
+    interview_sessions: Mapped[list[InterviewSession]] = relationship(
+        "InterviewSession",
+        back_populates="candidate",
+        foreign_keys="InterviewSession.candidate_user_id",
     )
