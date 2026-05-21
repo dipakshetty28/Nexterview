@@ -32,6 +32,36 @@ export type DashboardResponse = {
   organizations: OrganizationMembership[];
 };
 
+export type ProjectFile = {
+  id?: string;
+  project_id?: string;
+  path: string;
+  content: string;
+  language: string;
+  file_type: string;
+  is_editable: boolean;
+  is_hidden?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ScenarioProject = {
+  id?: string;
+  scenario_id?: string;
+  project_name: string;
+  stack: string[];
+  description?: string;
+  framework: string | null;
+  package_manager: string | null;
+  install_command: string | null;
+  run_command: string | null;
+  test_command: string | null;
+  entrypoint: string | null;
+  files: ProjectFile[];
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type Scenario = {
   id: string;
   interview_id: string;
@@ -41,11 +71,17 @@ export type Scenario = {
   starter_code: string;
   expected_behavior: string[];
   logs_or_bug_report: string;
+  bug_description: string;
+  feature_request: string;
+  validation_instructions: string;
+  candidate_task_summary: string;
   hidden_evaluation_points: string[];
+  hidden_rubric: string[];
   candidate_instructions: string;
   interviewer_rubric: string[];
   generation_source: string;
   ai_model: string | null;
+  project: ScenarioProject | null;
   created_at: string;
   updated_at: string;
 };
@@ -137,7 +173,12 @@ export type CandidateSession = {
     starter_code: string;
     expected_behavior: string[];
     logs_or_bug_report: string;
+    bug_description: string;
+    feature_request: string;
+    validation_instructions: string;
+    candidate_task_summary: string;
     candidate_instructions: string;
+    project: ScenarioProject | null;
   };
   submission: Submission | null;
   ai_messages: AIMessage[];
@@ -190,6 +231,13 @@ export type Submission = {
   code: string;
   notes: string;
   test_output: string | null;
+  submitted_files: Array<Record<string, unknown>>;
+  branch_name: string | null;
+  commit_sha: string | null;
+  repository_url: string | null;
+  pull_request_url: string | null;
+  push_status: string | null;
+  push_error: string | null;
   submitted_at: string;
   created_at: string;
   updated_at: string;
