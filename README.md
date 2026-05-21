@@ -30,7 +30,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `POST /api/sessions/{id}/run-tests`
   - `POST /api/sessions/{id}/submit`
 - Users, organizations, and organization memberships
-- Interviews, invite tokens, interview sessions, stored generated scenarios, telemetry events, AI messages, and submissions
+- Interviews, invite tokens, interview sessions, stored generated scenarios, scenario projects, project files, session file snapshots, telemetry events, AI messages, and submissions
 - OpenAI Responses API integration on the backend with Pydantic structured output validation
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
@@ -251,11 +251,17 @@ The response includes:
 - `starter_code`
 - `expected_behavior`
 - `logs_or_bug_report`
+- `bug_description`
+- `feature_request`
+- `validation_instructions`
+- `candidate_task_summary`
 - `hidden_evaluation_points`
+- `hidden_rubric`
 - `candidate_instructions`
 - `interviewer_rubric`
+- optional `project` metadata with stack, commands, entrypoint, package manager, framework, and generated files
 
-The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. If the OpenAI key is absent or the provider call fails, the backend returns and stores a realistic deterministic fallback scenario with `generation_source` set to `fallback`.
+The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Generated repo projects are stored as `scenario_projects` and `project_files`. When a candidate starts an interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a realistic deterministic fallback scenario with `generation_source` set to `fallback`.
 
 Generate a candidate invite link:
 
@@ -348,9 +354,19 @@ Content-Type: application/json
 {
   "code": "def handle_webhook(event):\n    return event\n",
   "notes": "Root cause and verification summary.",
-  "test_output": "4/4 simulated checks passed."
+  "test_output": "4/4 simulated checks passed.",
+  "submitted_files": [
+    {
+      "path": "app/billing.py",
+      "content": "def charge_customer(...):\n    return receipt\n",
+      "language": "python",
+      "file_type": "source"
+    }
+  ]
 }
 ```
+
+`submitted_files` is optional for current single-file clients. If it is omitted and the session has file snapshots, the backend stores the current session snapshots as the submission fallback. Submission records also include reserved backend-owned fields for future GitHub branch, commit, repository, pull request, push status, and push error metadata.
 
 Candidate session statuses are `invited`, `started`, `submitted`, and `reviewed`. Candidates can only access sessions where they are the session owner. Submitted or reviewed sessions no longer accept code edits, note updates, test runs, or duplicate final submissions.
 

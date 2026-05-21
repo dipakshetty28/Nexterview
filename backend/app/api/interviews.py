@@ -12,13 +12,14 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import require_roles
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.interview import Interview, InterviewSession, InterviewSessionStatus, InviteToken, Scenario
+from app.models.interview import Interview, InterviewSession, InterviewSessionStatus, InviteToken, Scenario, ScenarioProject
 from app.models.organization import OrganizationMember
 from app.models.user import User, UserRole
 from app.schemas.invite import InviteCreateRequest, InviteTokenRead
 from app.schemas.interview import InterviewCreateRequest, InterviewRead
 from app.schemas.scenario import ScenarioRead
 from app.services.invites import generate_invite_token, hash_invite_token
+from app.services.scenario_projects import upsert_scenario_project
 from app.services.scenario_generator import ScenarioGenerationResult, ScenarioGenerator
 
 router = APIRouter(prefix="/api/interviews", tags=["interviews"])
@@ -53,7 +54,7 @@ def _get_interview_for_user(db: Session, interview_id: UUID, user: User) -> Inte
     try:
         interview = db.execute(
             select(Interview)
-            .options(selectinload(Interview.scenario))
+            .options(selectinload(Interview.scenario).selectinload(Scenario.project).selectinload(ScenarioProject.files))
             .where(Interview.id == interview_id, Interview.organization_id.in_(organization_ids))
         ).scalar_one_or_none()
     except ProgrammingError as exc:
@@ -175,7 +176,7 @@ def list_interviews(
     try:
         interviews = db.execute(
             select(Interview)
-            .options(selectinload(Interview.scenario))
+            .options(selectinload(Interview.scenario).selectinload(Scenario.project).selectinload(ScenarioProject.files))
             .where(Interview.organization_id.in_(organization_ids))
             .order_by(Interview.created_at.desc())
         ).scalars()
@@ -270,7 +271,12 @@ def generate_scenario(
     scenario.starter_code = result.scenario.starter_code
     scenario.expected_behavior = result.scenario.expected_behavior
     scenario.logs_or_bug_report = result.scenario.logs_or_bug_report
+    scenario.bug_description = result.scenario.bug_description
+    scenario.feature_request = result.scenario.feature_request
+    scenario.validation_instructions = result.scenario.validation_instructions
+    scenario.candidate_task_summary = result.scenario.candidate_task_summary
     scenario.hidden_evaluation_points = result.scenario.hidden_evaluation_points
+    scenario.hidden_rubric = result.scenario.hidden_rubric
     scenario.candidate_instructions = result.scenario.candidate_instructions
     scenario.interviewer_rubric = result.scenario.interviewer_rubric
     scenario.generation_source = result.source
@@ -278,6 +284,8 @@ def generate_scenario(
     interview.status = "READY"
 
     try:
+        db.flush()
+        upsert_scenario_project(db, scenario=scenario, project_payload=result.scenario.project)
         db.commit()
     except ProgrammingError as exc:
         db.rollback()

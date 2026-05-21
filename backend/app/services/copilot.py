@@ -152,9 +152,13 @@ def _build_context_prompt(
         "scenario": {
             "title": scenario.title,
             "business_context": scenario.business_context,
+            "candidate_task_summary": scenario.candidate_task_summary,
             "technical_requirements": scenario.technical_requirements,
             "expected_behavior": scenario.expected_behavior,
             "logs_or_bug_report": scenario.logs_or_bug_report,
+            "bug_description": scenario.bug_description,
+            "feature_request": scenario.feature_request,
+            "validation_instructions": scenario.validation_instructions,
             "candidate_instructions": scenario.candidate_instructions,
         },
         "previous_messages": previous,

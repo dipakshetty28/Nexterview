@@ -8,6 +8,7 @@ from app.db.session import SessionLocal
 from app.models.interview import Interview, Scenario
 from app.models.organization import Organization, OrganizationMember
 from app.models.user import User, UserRole
+from app.services.scenario_projects import upsert_scenario_project
 from app.services.scenario_generator import build_fallback_scenario
 
 DEMO_PASSWORD = "Nexterview123!"
@@ -106,11 +107,18 @@ def _upsert_sample_interview(db: Session, *, organization: Organization, intervi
     scenario.starter_code = generated.starter_code
     scenario.expected_behavior = generated.expected_behavior
     scenario.logs_or_bug_report = generated.logs_or_bug_report
+    scenario.bug_description = generated.bug_description
+    scenario.feature_request = generated.feature_request
+    scenario.validation_instructions = generated.validation_instructions
+    scenario.candidate_task_summary = generated.candidate_task_summary
     scenario.hidden_evaluation_points = generated.hidden_evaluation_points
+    scenario.hidden_rubric = generated.hidden_rubric
     scenario.candidate_instructions = generated.candidate_instructions
     scenario.interviewer_rubric = generated.interviewer_rubric
     scenario.generation_source = "fallback"
     scenario.ai_model = None
+    db.flush()
+    upsert_scenario_project(db, scenario=scenario, project_payload=generated.project)
 
 
 def seed() -> None:

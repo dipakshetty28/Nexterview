@@ -15,6 +15,14 @@ from app.schemas.invite import (
     TestRunResult,
 )
 from app.schemas.interview import InterviewCreateRequest, InterviewRead
+from app.schemas.project import (
+    GeneratedProjectFile,
+    GeneratedScenarioProject,
+    ProjectFileRead,
+    ScenarioProjectRead,
+    SessionFileSnapshotRead,
+    SubmittedFileRead,
+)
 from app.schemas.scenario import GeneratedScenario, ScenarioRead
 
 __all__ = [
@@ -23,6 +31,8 @@ __all__ = [
     "AICopilotResponse",
     "AIMessageRead",
     "GeneratedScenario",
+    "GeneratedProjectFile",
+    "GeneratedScenarioProject",
     "InterviewCreateRequest",
     "InterviewRead",
     "InterviewSessionRead",
@@ -30,10 +40,14 @@ __all__ = [
     "InviteTokenRead",
     "LoginRequest",
     "PublicInviteRead",
+    "ProjectFileRead",
     "RegisterRequest",
+    "ScenarioProjectRead",
     "ScenarioRead",
+    "SessionFileSnapshotRead",
     "SubmissionCreate",
     "SubmissionRead",
+    "SubmittedFileRead",
     "TelemetryEventCreate",
     "TelemetryEventRead",
     "TokenPayload",
