@@ -1,4 +1,6 @@
 from app.models.interview import (
+    AIMessage,
+    AIMessageRole,
     Interview,
     InterviewSession,
     InterviewSessionStatus,
@@ -15,6 +17,8 @@ __all__ = [
     "Interview",
     "InterviewSession",
     "InterviewSessionStatus",
+    "AIMessage",
+    "AIMessageRole",
     "InviteToken",
     "Organization",
     "OrganizationMember",

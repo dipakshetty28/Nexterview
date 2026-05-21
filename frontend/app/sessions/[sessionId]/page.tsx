@@ -4,18 +4,20 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
+  askCandidateCopilot,
   getCandidateSession,
   runSessionTests,
   saveSessionEvent,
   submitSessionSolution,
 } from "@/lib/api";
-import type { CandidateSession, Submission, TestRunResult } from "@/lib/types";
+import type { AIMessage, CandidateSession, Submission, TestRunResult } from "@/lib/types";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -70,6 +72,77 @@ function languageForStack(stack: string[]): string {
   return "javascript";
 }
 
+const markdownComponents: Components = {
+  code({ className, children, node: _node, ...props }) {
+    const match = /language-(\w+)/.exec(className ?? "");
+    const codeText = String(children ?? "").replace(/\n$/, "");
+    if (!match) {
+      return (
+        <code className="rounded bg-slate-800 px-1 py-0.5 text-cyan-200" {...props}>
+          {children}
+        </code>
+      );
+    }
+
+    return <CopyableCodeBlock code={codeText} language={match[1]} />;
+  },
+  p({ children }) {
+    return <p className="leading-6">{children}</p>;
+  },
+  ul({ children }) {
+    return <ul className="ml-4 list-disc space-y-1">{children}</ul>;
+  },
+  ol({ children }) {
+    return <ol className="ml-4 list-decimal space-y-1">{children}</ol>;
+  },
+};
+
+function CopyableCodeBlock({ code, language }: { code: string; language: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(code);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div className="my-3 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2 text-xs text-slate-400">
+        <span>{language}</span>
+        <button className="text-cyan-300 hover:text-cyan-200" onClick={() => void handleCopy()} type="button">
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-auto p-3 text-xs leading-5 text-slate-200">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+function CopilotMessage({ message }: { message: AIMessage }) {
+  const isAssistant = message.role === "assistant";
+  return (
+    <div
+      className={
+        isAssistant
+          ? "rounded-md border border-slate-800 bg-slate-950 p-3 text-sm text-slate-200"
+          : "rounded-md border border-cyan-950/70 bg-cyan-950/30 p-3 text-sm text-cyan-50"
+      }
+    >
+      <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">{isAssistant ? "Copilot" : "You"}</p>
+      {isAssistant ? (
+        <div className="grid gap-2">
+          <ReactMarkdown components={markdownComponents}>{message.content}</ReactMarkdown>
+        </div>
+      ) : (
+        <p className="whitespace-pre-wrap leading-6">{message.content}</p>
+      )}
+    </div>
+  );
+}
+
 function CandidateSessionContent() {
   const params = useParams<{ sessionId: string }>();
   const { token, user } = useAuth();
@@ -85,6 +158,9 @@ function CandidateSessionContent() {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [testRun, setTestRun] = useState<TestRunResult | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [copilotMessages, setCopilotMessages] = useState<AIMessage[]>([]);
+  const [copilotQuestion, setCopilotQuestion] = useState("");
+  const [isAskingCopilot, setIsAskingCopilot] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const codeSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,6 +180,7 @@ function CandidateSessionContent() {
         setNotes(loadedSession.notes ?? "");
         setLastSavedAt(loadedSession.last_autosaved_at);
         setSubmission(loadedSession.submission);
+        setCopilotMessages(loadedSession.ai_messages);
 
         if (!sessionStartedSent.current) {
           sessionStartedSent.current = true;
@@ -258,6 +335,30 @@ function CandidateSessionContent() {
     }
   }
 
+  async function handleAskCopilot() {
+    if (!token || !session || copilotQuestion.trim().length === 0) {
+      return;
+    }
+
+    const question = copilotQuestion.trim();
+    setIsAskingCopilot(true);
+    setError(null);
+    try {
+      const response = await askCandidateCopilot(token, session.id, { question, code });
+      setCopilotMessages((currentMessages) => [
+        ...currentMessages,
+        response.user_message,
+        response.assistant_message,
+      ]);
+      setCopilotQuestion("");
+    } catch (requestError: unknown) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to ask the AI copilot.";
+      setError(message);
+    } finally {
+      setIsAskingCopilot(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800 bg-slate-950/95 px-6 py-4">
@@ -403,15 +504,34 @@ function CandidateSessionContent() {
 
             <aside className="grid content-start gap-4">
               <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                <h3 className="text-sm font-semibold text-slate-100">AI copilot</h3>
-                <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
-                  Copilot chat will land in a later PR. For now, use your normal AI workflow and capture decisions in notes.
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-slate-100">AI copilot</h3>
+                  <span className="text-xs text-slate-500">{session.interview.allowed_ai_mode}</span>
+                </div>
+                <div className="mt-3 grid max-h-[440px] gap-3 overflow-auto pr-1">
+                  {copilotMessages.length === 0 ? (
+                    <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
+                      Ask for implementation help, debugging hypotheses, code review, or a validation plan. Copilot receives the task, your current code, and prior chat history.
+                    </div>
+                  ) : (
+                    copilotMessages.map((message) => <CopilotMessage key={message.id} message={message} />)
+                  )}
                 </div>
                 <textarea
-                  className="mt-3 min-h-24 w-full resize-none rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-500 outline-none"
-                  disabled
-                  placeholder="Copilot prompt placeholder"
+                  className="mt-3 min-h-24 w-full resize-none rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  disabled={isAskingCopilot}
+                  onChange={(event) => setCopilotQuestion(event.target.value)}
+                  placeholder="Ask for a hint, patch, debugging plan, or edge-case review."
+                  value={copilotQuestion}
                 />
+                <Button
+                  className="mt-3 w-full"
+                  disabled={isAskingCopilot || copilotQuestion.trim().length === 0}
+                  onClick={() => void handleAskCopilot()}
+                  type="button"
+                >
+                  {isAskingCopilot ? "Asking..." : "Ask copilot"}
+                </Button>
               </section>
 
               <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">

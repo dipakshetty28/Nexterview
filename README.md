@@ -1,6 +1,6 @@
 # Nexterview
 
-Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation, candidate invite/session access, and a candidate interview room with telemetry.
+Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation and copilot responses, candidate invite/session access, and a candidate interview room with telemetry.
 
 ## Current Scope
 
@@ -26,14 +26,15 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `POST /api/invite/{token}/start`
   - `GET /api/sessions/{id}`
   - `POST /api/sessions/{id}/events`
+  - `POST /api/sessions/{id}/ai`
   - `POST /api/sessions/{id}/run-tests`
   - `POST /api/sessions/{id}/submit`
 - Users, organizations, and organization memberships
-- Interviews, invite tokens, interview sessions, stored generated scenarios, telemetry events, and submissions
+- Interviews, invite tokens, interview sessions, stored generated scenarios, telemetry events, AI messages, and submissions
 - OpenAI Responses API integration on the backend with Pydantic structured output validation
-- Graceful deterministic scenario fallback when `OPENAI_API_KEY` is missing or generation fails
+- Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate interview room
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate interview room with markdown AI copilot
 - Seed script with demo users and a sample generated interview scenario
 
 ## Architecture
@@ -173,7 +174,7 @@ Demo invite flow:
 1. Log in as `admin@nexterview.dev` or `interviewer@nexterview.dev`.
 2. Open `/interviews`, enter `candidate@nexterview.dev`, and generate an invite link.
 3. Open the invite link, log in as `candidate@nexterview.dev`, and start the interview.
-4. The candidate lands on `/sessions/{id}` with task context, a Monaco editor, notes, timer, AI copilot placeholder, test simulation, autosave, and final submit.
+4. The candidate lands on `/sessions/{id}` with task context, a Monaco editor, notes, timer, AI copilot, test simulation, autosave, and final submit.
 
 ## API Contracts
 
@@ -291,7 +292,7 @@ GET /api/sessions/{id}
 Authorization: Bearer <candidate_access_token>
 ```
 
-The session response includes the candidate-safe task scenario, `latest_code`, `notes`, `last_autosaved_at`, and the final `submission` when one exists.
+The session response includes the candidate-safe task scenario, `latest_code`, `notes`, `last_autosaved_at`, `ai_messages`, and the final `submission` when one exists.
 
 Save a candidate room event:
 
@@ -309,6 +310,21 @@ Content-Type: application/json
 ```
 
 Supported telemetry event types are `session_started`, `code_edit`, `note_updated`, `test_run`, and `submission_created`. `code_edit` autosaves `latest_code`; `note_updated` autosaves the root cause notes. `test_run` and `submission_created` are created through their dedicated endpoints.
+
+Ask the candidate AI copilot:
+
+```http
+POST /api/sessions/{id}/ai
+Authorization: Bearer <candidate_access_token>
+Content-Type: application/json
+
+{
+  "question": "Can you help me make retries idempotent?",
+  "code": "def charge_customer(customer_id, gateway):\n    return gateway.charge(customer_id)\n"
+}
+```
+
+The copilot receives the generated scenario, current candidate code, candidate question, previous `ai_messages`, and the interview's configured AI mode: `Hint Mode`, `Pair Programmer Mode`, `Senior Engineer Mode`, or `Debugging Assistant Mode`. The backend stores both the candidate prompt and the assistant response in `ai_messages`. The OpenAI key stays backend-only; the frontend only calls Nexterview's API.
 
 Run the deterministic test simulation:
 
@@ -421,6 +437,11 @@ curl -X POST http://localhost:8000/api/sessions/<session_id>/run-tests \
   -H "Authorization: Bearer <candidate_access_token>" \
   -H "Content-Type: application/json" \
   -d '{"code":"def handle_webhook(event):\n    return event\n"}'
+
+curl -X POST http://localhost:8000/api/sessions/<session_id>/ai \
+  -H "Authorization: Bearer <candidate_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Can you suggest a safe implementation approach?","code":"def handle_webhook(event):\n    return event\n"}'
 
 curl -X POST http://localhost:8000/api/sessions/<session_id>/submit \
   -H "Authorization: Bearer <candidate_access_token>" \

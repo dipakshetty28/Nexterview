@@ -1,5 +1,6 @@
 import type {
   AuthResponse,
+  AICopilotResponse,
   CandidateSession,
   DashboardResponse,
   Interview,
@@ -141,6 +142,18 @@ export function startInviteSession(token: string, inviteToken: string): Promise<
 
 export function getCandidateSession(token: string, sessionId: string): Promise<CandidateSession> {
   return apiRequest<CandidateSession>(`/api/sessions/${sessionId}`, { token });
+}
+
+export function askCandidateCopilot(
+  token: string,
+  sessionId: string,
+  input: { question: string; code: string },
+): Promise<AICopilotResponse> {
+  return apiRequest<AICopilotResponse>(`/api/sessions/${sessionId}/ai`, {
+    method: "POST",
+    token,
+    body: input,
+  });
 }
 
 export function saveSessionEvent(

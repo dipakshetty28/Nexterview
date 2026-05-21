@@ -140,6 +140,24 @@ export type CandidateSession = {
     candidate_instructions: string;
   };
   submission: Submission | null;
+  ai_messages: AIMessage[];
+};
+
+export type AIMessage = {
+  id: string;
+  session_id: string;
+  candidate_id: string;
+  role: "user" | "assistant";
+  content: string;
+  code_snapshot: string | null;
+  ai_mode: string;
+  ai_model: string | null;
+  created_at: string;
+};
+
+export type AICopilotResponse = {
+  user_message: AIMessage;
+  assistant_message: AIMessage;
 };
 
 export type TelemetryEventType = "session_started" | "code_edit" | "note_updated" | "test_run" | "submission_created";

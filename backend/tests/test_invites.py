@@ -10,12 +10,15 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.api.candidate import get_candidate_copilot
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models import (
+    AIMessage,
+    AIMessageRole,
     Interview,
     InterviewSession,
     InterviewSessionStatus,
@@ -29,10 +32,22 @@ from app.models import (
     User,
     UserRole,
 )
+from app.services.copilot import CopilotResult
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
-_ = (Interview, InterviewSession, InviteToken, Organization, OrganizationMember, Scenario, Submission, TelemetryEvent, User)
+_ = (
+    AIMessage,
+    Interview,
+    InterviewSession,
+    InviteToken,
+    Organization,
+    OrganizationMember,
+    Scenario,
+    Submission,
+    TelemetryEvent,
+    User,
+)
 
 
 @pytest.fixture()
@@ -239,6 +254,67 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert test_run["status"] == "passed"
     assert test_run["cases"]
 
+    session_id = session["id"]
+
+    class StubCopilot:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_reply(
+            self,
+            *,
+            session: InterviewSession,
+            question: str,
+            code: str,
+            previous_messages: list[AIMessage],
+        ) -> CopilotResult:
+            assert str(session.id) == session_id
+            assert "idempotency" in question.lower()
+            assert code == edited_code
+            if self.calls == 0:
+                assert previous_messages == []
+                content = "Try extracting the idempotency key before the retry loop.\n\n```python\nkey = invoice_id\n```"
+            else:
+                assert [message.role for message in previous_messages] == [AIMessageRole.USER, AIMessageRole.ASSISTANT]
+                content = "Yes. Build on the previous approach and add a regression test for duplicate retries."
+            assert session.interview.scenario is not None
+            self.calls += 1
+            return CopilotResult(
+                content=content,
+                source="mock",
+                model="test-copilot",
+            )
+
+    stub_copilot = StubCopilot()
+    app.dependency_overrides[get_candidate_copilot] = lambda: stub_copilot
+    ai_response = client.post(
+        f"/api/sessions/{session['id']}/ai",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"question": "How should I fix the idempotency bug?", "code": edited_code},
+    )
+    assert ai_response.status_code == 201
+    ai_exchange = ai_response.json()
+    assert ai_exchange["user_message"]["role"] == "user"
+    assert ai_exchange["user_message"]["code_snapshot"] == edited_code
+    assert ai_exchange["assistant_message"]["role"] == "assistant"
+    assert ai_exchange["assistant_message"]["ai_model"] == "test-copilot"
+    assert "```python" in ai_exchange["assistant_message"]["content"]
+
+    follow_up_response = client.post(
+        f"/api/sessions/{session['id']}/ai",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"question": "Does this idempotency approach need a test?", "code": edited_code},
+    )
+    assert follow_up_response.status_code == 201
+    assert "regression test" in follow_up_response.json()["assistant_message"]["content"]
+
+    admin_ai_response = client.post(
+        f"/api/sessions/{session['id']}/ai",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"question": "Can I see this?", "code": edited_code},
+    )
+    assert admin_ai_response.status_code == 403
+
     reinvite_response = client.post(
         f"/api/interviews/{interview_id}/invite",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -286,6 +362,21 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert TelemetryEventType.NOTE_UPDATED in event_types
     assert TelemetryEventType.TEST_RUN in event_types
     assert TelemetryEventType.SUBMISSION_CREATED in event_types
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        ai_messages = list(db.execute(select(AIMessage).order_by(AIMessage.created_at.asc())).scalars())
+    finally:
+        db.close()
+    assert [message.role for message in ai_messages] == [
+        AIMessageRole.USER,
+        AIMessageRole.ASSISTANT,
+        AIMessageRole.USER,
+        AIMessageRole.ASSISTANT,
+    ]
+    assert ai_messages[0].content == "How should I fix the idempotency bug?"
+    assert "idempotency key" in ai_messages[1].content
 
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

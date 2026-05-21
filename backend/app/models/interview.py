@@ -26,6 +26,11 @@ class TelemetryEventType(str, enum.Enum):
     SUBMISSION_CREATED = "submission_created"
 
 
+class AIMessageRole(str, enum.Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
 class Interview(TimestampMixin, Base):
     __tablename__ = "interviews"
 
@@ -150,6 +155,11 @@ class InterviewSession(TimestampMixin, Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    ai_messages: Mapped[list[AIMessage]] = relationship(
+        "AIMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
 
 
 class InviteToken(TimestampMixin, Base):
@@ -261,3 +271,43 @@ class Submission(TimestampMixin, Base):
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="submission")
+
+
+class AIMessage(TimestampMixin, Base):
+    __tablename__ = "ai_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[AIMessageRole] = mapped_column(
+        Enum(
+            AIMessageRole,
+            name="ai_message_role",
+            values_callable=lambda roles: [role.value for role in roles],
+        ),
+        nullable=False,
+        index=True,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    code_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_mode: Mapped[str] = mapped_column(String(80), nullable=False)
+    ai_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    message_metadata: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="ai_messages")
