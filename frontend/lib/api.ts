@@ -7,6 +7,10 @@ import type {
   InviteTokenResponse,
   PublicInvite,
   Scenario,
+  Submission,
+  TelemetryEvent,
+  TelemetryEventType,
+  TestRunResult,
   User,
 } from "@/lib/types";
 
@@ -137,4 +141,36 @@ export function startInviteSession(token: string, inviteToken: string): Promise<
 
 export function getCandidateSession(token: string, sessionId: string): Promise<CandidateSession> {
   return apiRequest<CandidateSession>(`/api/sessions/${sessionId}`, { token });
+}
+
+export function saveSessionEvent(
+  token: string,
+  sessionId: string,
+  input: { event_type: TelemetryEventType; payload?: Record<string, unknown> },
+): Promise<TelemetryEvent> {
+  return apiRequest<TelemetryEvent>(`/api/sessions/${sessionId}/events`, {
+    method: "POST",
+    token,
+    body: { event_type: input.event_type, payload: input.payload ?? {} },
+  });
+}
+
+export function runSessionTests(token: string, sessionId: string, input: { code: string }): Promise<TestRunResult> {
+  return apiRequest<TestRunResult>(`/api/sessions/${sessionId}/run-tests`, {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export function submitSessionSolution(
+  token: string,
+  sessionId: string,
+  input: { code: string; notes: string; test_output?: string | null },
+): Promise<Submission> {
+  return apiRequest<Submission>(`/api/sessions/${sessionId}/submit`, {
+    method: "POST",
+    token,
+    body: input,
+  });
 }

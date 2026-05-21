@@ -18,6 +18,14 @@ class InterviewSessionStatus(str, enum.Enum):
     REVIEWED = "reviewed"
 
 
+class TelemetryEventType(str, enum.Enum):
+    SESSION_STARTED = "session_started"
+    CODE_EDIT = "code_edit"
+    NOTE_UPDATED = "note_updated"
+    TEST_RUN = "test_run"
+    SUBMISSION_CREATED = "submission_created"
+
+
 class Interview(TimestampMixin, Base):
     __tablename__ = "interviews"
 
@@ -125,9 +133,23 @@ class InterviewSession(TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latest_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_autosaved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     interview: Mapped[Interview] = relationship("Interview", back_populates="sessions")
     invite_tokens: Mapped[list[InviteToken]] = relationship("InviteToken", back_populates="session")
+    telemetry_events: Mapped[list[TelemetryEvent]] = relationship(
+        "TelemetryEvent",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+    submission: Mapped[Submission | None] = relationship(
+        "Submission",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class InviteToken(TimestampMixin, Base):
@@ -172,3 +194,70 @@ class InviteToken(TimestampMixin, Base):
 
     interview: Mapped[Interview] = relationship("Interview", back_populates="invite_tokens")
     session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="invite_tokens")
+
+
+class TelemetryEvent(TimestampMixin, Base):
+    __tablename__ = "telemetry_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_type: Mapped[TelemetryEventType] = mapped_column(
+        Enum(
+            TelemetryEventType,
+            name="telemetry_event_type",
+            values_callable=lambda event_types: [event_type.value for event_type in event_types],
+        ),
+        nullable=False,
+        index=True,
+    )
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="telemetry_events")
+
+
+class Submission(TimestampMixin, Base):
+    __tablename__ = "submissions"
+    __table_args__ = (UniqueConstraint("session_id", name="uq_submissions_session_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False)
+    test_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="submission")

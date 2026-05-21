@@ -23,13 +23,16 @@ from app.models import (
     Organization,
     OrganizationMember,
     Scenario,
+    Submission,
+    TelemetryEvent,
+    TelemetryEventType,
     User,
     UserRole,
 )
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
-_ = (Interview, InterviewSession, InviteToken, Organization, OrganizationMember, Scenario, User)
+_ = (Interview, InterviewSession, InviteToken, Organization, OrganizationMember, Scenario, Submission, TelemetryEvent, User)
 
 
 @pytest.fixture()
@@ -183,6 +186,59 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     )
     assert admin_session_response.status_code == 403
 
+    session_started_response = client.post(
+        f"/api/sessions/{session['id']}/events",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"event_type": "session_started", "payload": {}},
+    )
+    assert session_started_response.status_code == 201
+    assert session_started_response.json()["event_type"] == "session_started"
+
+    edited_code = (
+        "def handle_webhook(event):\n"
+        "    try:\n"
+        "        if event.id in processed_duplicate_events:\n"
+        "            return {'status': 'duplicate'}\n"
+        "        return save_score(event.candidate_id, event.score)\n"
+        "    except Exception as error:\n"
+        "        raise error\n"
+    )
+    code_event_response = client.post(
+        f"/api/sessions/{session['id']}/events",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"event_type": "code_edit", "payload": {"code": edited_code}},
+    )
+    assert code_event_response.status_code == 201
+    assert code_event_response.json()["payload"]["code_length"] == len(edited_code)
+
+    notes = "Root cause: duplicate webhook retries overwrite scores without idempotency."
+    note_event_response = client.post(
+        f"/api/sessions/{session['id']}/events",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"event_type": "note_updated", "payload": {"notes": notes}},
+    )
+    assert note_event_response.status_code == 201
+    assert note_event_response.json()["payload"]["note_length"] == len(notes)
+
+    autosaved_session_response = client.get(
+        f"/api/sessions/{session['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert autosaved_session_response.status_code == 200
+    autosaved_session = autosaved_session_response.json()
+    assert autosaved_session["latest_code"] == edited_code
+    assert autosaved_session["notes"] == notes
+
+    test_run_response = client.post(
+        f"/api/sessions/{session['id']}/run-tests",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"code": edited_code},
+    )
+    assert test_run_response.status_code == 200
+    test_run = test_run_response.json()
+    assert test_run["status"] == "passed"
+    assert test_run["cases"]
+
     reinvite_response = client.post(
         f"/api/interviews/{interview_id}/invite",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -192,6 +248,44 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     reinvite = reinvite_response.json()
     assert reinvite["session_id"] == session["id"]
     assert reinvite["invite_url"] != invite["invite_url"]
+
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"code": edited_code, "notes": notes, "test_output": test_run["output"]},
+    )
+    assert submit_response.status_code == 201
+    submission = submit_response.json()
+    assert submission["code"] == edited_code
+    assert submission["notes"] == notes
+
+    submitted_session_response = client.get(
+        f"/api/sessions/{session['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert submitted_session_response.status_code == 200
+    submitted_session = submitted_session_response.json()
+    assert submitted_session["status"] == "submitted"
+    assert submitted_session["submission"]["id"] == submission["id"]
+
+    post_submit_edit_response = client.post(
+        f"/api/sessions/{session['id']}/events",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"event_type": "code_edit", "payload": {"code": "def later():\n    return None\n"}},
+    )
+    assert post_submit_edit_response.status_code == 409
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        event_types = [event.event_type for event in db.execute(select(TelemetryEvent)).scalars()]
+    finally:
+        db.close()
+    assert TelemetryEventType.SESSION_STARTED in event_types
+    assert TelemetryEventType.CODE_EDIT in event_types
+    assert TelemetryEventType.NOTE_UPDATED in event_types
+    assert TelemetryEventType.TEST_RUN in event_types
+    assert TelemetryEventType.SUBMISSION_CREATED in event_types
 
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
