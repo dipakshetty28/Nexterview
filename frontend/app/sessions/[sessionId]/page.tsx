@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -13,11 +13,20 @@ import {
   ApiError,
   askCandidateCopilot,
   getCandidateSession,
+  getCandidateWorkspace,
   runSessionTests,
   saveSessionEvent,
   submitSessionSolution,
+  updateWorkspaceFile,
 } from "@/lib/api";
-import type { AIMessage, CandidateSession, ProjectFile, ScenarioProject, Submission, TestRunResult } from "@/lib/types";
+import type {
+  AIMessage,
+  CandidateSession,
+  CandidateWorkspace,
+  Submission,
+  TestRunResult,
+  WorkspaceFile,
+} from "@/lib/types";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -27,6 +36,13 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
     </div>
   ),
 });
+
+type TreeNode = {
+  name: string;
+  path: string;
+  children: TreeNode[];
+  file?: WorkspaceFile;
+};
 
 function formatDuration(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600)
@@ -72,36 +88,151 @@ function languageForStack(stack: string[]): string {
   return "javascript";
 }
 
-function fileLabel(file: ProjectFile): string {
-  return `${file.language} / ${file.file_type}${file.is_editable ? "" : " / read-only"}`;
+function monacoLanguage(language: string): string {
+  const normalized = language.toLowerCase();
+  if (normalized === "md" || normalized === "markdown") {
+    return "markdown";
+  }
+  if (normalized === "py") {
+    return "python";
+  }
+  if (normalized === "tsx" || normalized === "jsx") {
+    return "typescript";
+  }
+  if (normalized === "yml") {
+    return "yaml";
+  }
+  if (normalized === "sh" || normalized === "bash") {
+    return "shell";
+  }
+  return normalized;
 }
 
-function CandidateProjectPreview({ project }: { project: ScenarioProject }) {
+function buildFileTree(files: WorkspaceFile[]): TreeNode[] {
+  const root: TreeNode = { name: "", path: "", children: [] };
+
+  for (const file of files) {
+    const parts = file.path.split("/");
+    let current = root;
+    parts.forEach((part, index) => {
+      const nodePath = parts.slice(0, index + 1).join("/");
+      let child = current.children.find((item) => item.name === part);
+      if (!child) {
+        child = { name: part, path: nodePath, children: [] };
+        current.children.push(child);
+      }
+      if (index === parts.length - 1) {
+        child.file = file;
+      }
+      current = child;
+    });
+  }
+
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((left, right) => {
+      if (left.file && !right.file) {
+        return 1;
+      }
+      if (!left.file && right.file) {
+        return -1;
+      }
+      return left.name.localeCompare(right.name);
+    });
+    nodes.forEach((node) => sortNodes(node.children));
+  };
+  sortNodes(root.children);
+  return root.children;
+}
+
+function FileTreeItem({
+  node,
+  selectedFileId,
+  dirtyFileIds,
+  savingFileIds,
+  onSelect,
+  depth = 0,
+}: {
+  node: TreeNode;
+  selectedFileId: string | null;
+  dirtyFileIds: Set<string>;
+  savingFileIds: Set<string>;
+  onSelect: (file: WorkspaceFile) => void;
+  depth?: number;
+}) {
+  if (node.file) {
+    const isSelected = selectedFileId === node.file.id;
+    const isDirty = dirtyFileIds.has(node.file.id);
+    const isSaving = savingFileIds.has(node.file.id);
+    return (
+      <button
+        className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs ${
+          isSelected ? "bg-cyan-950/70 text-cyan-100" : "text-slate-300 hover:bg-slate-900"
+        }`}
+        onClick={() => onSelect(node.file as WorkspaceFile)}
+        style={{ paddingLeft: `${depth * 14 + 8}px` }}
+        type="button"
+      >
+        <span className="min-w-0 truncate">{node.name}</span>
+        <span className="shrink-0 text-[10px] text-slate-500">
+          {isSaving ? "saving" : isDirty ? "*" : node.file.is_editable ? "" : "lock"}
+        </span>
+      </button>
+    );
+  }
+
   return (
-    <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-      <h3 className="text-sm font-semibold text-slate-100">Project files</h3>
-      <p className="mt-2 text-xs leading-5 text-slate-500">
-        {project.project_name} / {project.framework ?? "Project"} / {project.files.length} files
-      </p>
-      <div className="mt-3 grid gap-1 text-xs text-slate-400">
-        {project.install_command ? <span>Install: {project.install_command}</span> : null}
-        {project.run_command ? <span>Run: {project.run_command}</span> : null}
-        {project.test_command ? <span>Test: {project.test_command}</span> : null}
-      </div>
-      <div className="mt-3 grid gap-2">
-        {project.files.map((file) => (
-          <details className="rounded-md border border-slate-800 bg-slate-950" key={file.path}>
-            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-200">
-              <span>{file.path}</span>
-              <span className="ml-2 text-slate-500">{fileLabel(file)}</span>
-            </summary>
-            <pre className="max-h-64 overflow-auto border-t border-slate-800 p-3 text-xs leading-5 text-slate-300">
-              {file.content}
-            </pre>
-          </details>
+    <details open>
+      <summary
+        className="cursor-pointer rounded-md px-2 py-1.5 text-xs font-semibold text-slate-400 hover:bg-slate-900"
+        style={{ paddingLeft: `${depth * 14 + 8}px` }}
+      >
+        {node.name}
+      </summary>
+      <div className="grid gap-0.5">
+        {node.children.map((child) => (
+          <FileTreeItem
+            dirtyFileIds={dirtyFileIds}
+            key={child.path}
+            node={child}
+            onSelect={onSelect}
+            savingFileIds={savingFileIds}
+            selectedFileId={selectedFileId}
+            depth={depth + 1}
+          />
         ))}
       </div>
-    </section>
+    </details>
+  );
+}
+
+function FileTree({
+  files,
+  selectedFileId,
+  dirtyFileIds,
+  savingFileIds,
+  onSelect,
+}: {
+  files: WorkspaceFile[];
+  selectedFileId: string | null;
+  dirtyFileIds: Set<string>;
+  savingFileIds: Set<string>;
+  onSelect: (file: WorkspaceFile) => void;
+}) {
+  const tree = useMemo(() => buildFileTree(files), [files]);
+
+  return (
+    <div className="grid gap-1">
+      {tree.map((node) => (
+        <FileTreeItem
+          dirtyFileIds={dirtyFileIds}
+          key={node.path}
+          node={node}
+          onSelect={onSelect}
+          savingFileIds={savingFileIds}
+          selectedFileId={selectedFileId}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -180,7 +311,12 @@ function CandidateSessionContent() {
   const params = useParams<{ sessionId: string }>();
   const { token, user } = useAuth();
   const [session, setSession] = useState<CandidateSession | null>(null);
-  const [code, setCode] = useState("");
+  const [workspace, setWorkspace] = useState<CandidateWorkspace | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [fileContents, setFileContents] = useState<Record<string, string>>({});
+  const [dirtyFileIds, setDirtyFileIds] = useState<Set<string>>(new Set());
+  const [savingFileIds, setSavingFileIds] = useState<Set<string>>(new Set());
+  const [legacyCode, setLegacyCode] = useState("");
   const [notes, setNotes] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -195,9 +331,20 @@ function CandidateSessionContent() {
   const [copilotQuestion, setCopilotQuestion] = useState("");
   const [isAskingCopilot, setIsAskingCopilot] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const codeSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const noteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const legacyCodeSaveTimer = useRef<number | null>(null);
+  const noteSaveTimer = useRef<number | null>(null);
+  const fileSaveTimers = useRef<Record<string, number>>({});
+  const latestFileContents = useRef<Record<string, string>>({});
+  const openedFileIds = useRef<Set<string>>(new Set());
   const sessionStartedSent = useRef(false);
+
+  const workspaceFiles = workspace?.files ?? [];
+  const hasWorkspace = workspaceFiles.length > 0;
+  const selectedFile = workspaceFiles.find((file) => file.id === selectedFileId) ?? null;
+  const selectedEditorValue = selectedFile
+    ? fileContents[selectedFile.id] ?? selectedFile.current_content
+    : legacyCode;
+  const isSubmitted = session?.status === "submitted" || session?.status === "reviewed";
 
   useEffect(() => {
     if (!token || !params.sessionId) {
@@ -206,12 +353,26 @@ function CandidateSessionContent() {
 
     setIsLoading(true);
     setError(null);
-    getCandidateSession(token, params.sessionId)
-      .then((loadedSession) => {
+    Promise.all([getCandidateSession(token, params.sessionId), getCandidateWorkspace(token, params.sessionId)])
+      .then(([loadedSession, loadedWorkspace]) => {
+        const nextContents = Object.fromEntries(
+          loadedWorkspace.files.map((file) => [file.id, file.current_content]),
+        );
+        const entrypointFile = loadedWorkspace.files.find((file) => file.path === loadedWorkspace.project?.entrypoint);
+        const firstEditableSource =
+          loadedWorkspace.files.find((file) => file.is_editable && file.file_type === "source") ??
+          loadedWorkspace.files.find((file) => file.is_editable) ??
+          loadedWorkspace.files[0] ??
+          null;
+
+        latestFileContents.current = nextContents;
         setSession(loadedSession);
-        setCode(loadedSession.latest_code ?? loadedSession.scenario.starter_code);
+        setWorkspace(loadedWorkspace);
+        setSelectedFileId((entrypointFile ?? firstEditableSource)?.id ?? null);
+        setFileContents(nextContents);
+        setLegacyCode(loadedSession.latest_code ?? loadedSession.scenario.starter_code);
         setNotes(loadedSession.notes ?? "");
-        setLastSavedAt(loadedSession.last_autosaved_at);
+        setLastSavedAt(loadedWorkspace.last_autosaved_at ?? loadedSession.last_autosaved_at);
         setSubmission(loadedSession.submission);
         setCopilotMessages(loadedSession.ai_messages);
 
@@ -244,26 +405,95 @@ function CandidateSessionContent() {
 
   useEffect(() => {
     return () => {
-      if (codeSaveTimer.current) {
-        window.clearTimeout(codeSaveTimer.current);
+      if (legacyCodeSaveTimer.current) {
+        window.clearTimeout(legacyCodeSaveTimer.current);
       }
       if (noteSaveTimer.current) {
         window.clearTimeout(noteSaveTimer.current);
       }
+      Object.values(fileSaveTimers.current).forEach((timer) => window.clearTimeout(timer));
     };
   }, []);
 
-  const isSubmitted = session?.status === "submitted" || session?.status === "reviewed";
+  async function saveWorkspaceFile(fileId: string, content: string) {
+    if (!token || !session || isSubmitted) {
+      return null;
+    }
+    const file = workspaceFiles.find((workspaceFile) => workspaceFile.id === fileId);
+    if (!file || !file.is_editable) {
+      return null;
+    }
 
-  function queueCodeAutosave(nextCode: string) {
+    setSavingFileIds((current) => new Set(current).add(fileId));
+    try {
+      const savedFile = await updateWorkspaceFile(token, session.id, fileId, { content });
+      latestFileContents.current = { ...latestFileContents.current, [fileId]: savedFile.current_content };
+      setFileContents((current) => ({ ...current, [fileId]: savedFile.current_content }));
+      setWorkspace((current) =>
+        current
+          ? {
+              ...current,
+              last_autosaved_at: savedFile.updated_at,
+              files: current.files.map((workspaceFile) => (workspaceFile.id === fileId ? savedFile : workspaceFile)),
+            }
+          : current,
+      );
+      setDirtyFileIds((current) => {
+        const next = new Set(current);
+        next.delete(fileId);
+        return next;
+      });
+      setLastSavedAt(savedFile.updated_at);
+      setError(null);
+      return savedFile;
+    } catch (requestError: unknown) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to save workspace file.";
+      setError(message);
+      return null;
+    } finally {
+      setSavingFileIds((current) => {
+        const next = new Set(current);
+        next.delete(fileId);
+        return next;
+      });
+    }
+  }
+
+  function queueWorkspaceAutosave(fileId: string, nextContent: string) {
     if (!token || !session || isSubmitted) {
       return;
     }
-    if (codeSaveTimer.current) {
-      window.clearTimeout(codeSaveTimer.current);
+    if (fileSaveTimers.current[fileId]) {
+      window.clearTimeout(fileSaveTimers.current[fileId]);
+    }
+    setDirtyFileIds((current) => new Set(current).add(fileId));
+    fileSaveTimers.current[fileId] = window.setTimeout(() => {
+      void saveWorkspaceFile(fileId, latestFileContents.current[fileId] ?? nextContent);
+    }, 900);
+  }
+
+  async function flushPendingWorkspaceSaves() {
+    const pendingFileIds = Array.from(dirtyFileIds);
+    pendingFileIds.forEach((fileId) => {
+      if (fileSaveTimers.current[fileId]) {
+        window.clearTimeout(fileSaveTimers.current[fileId]);
+        delete fileSaveTimers.current[fileId];
+      }
+    });
+    await Promise.all(
+      pendingFileIds.map((fileId) => saveWorkspaceFile(fileId, latestFileContents.current[fileId] ?? "")),
+    );
+  }
+
+  function queueLegacyCodeAutosave(nextCode: string) {
+    if (!token || !session || isSubmitted) {
+      return;
+    }
+    if (legacyCodeSaveTimer.current) {
+      window.clearTimeout(legacyCodeSaveTimer.current);
     }
     setIsSavingCode(true);
-    codeSaveTimer.current = setTimeout(() => {
+    legacyCodeSaveTimer.current = window.setTimeout(() => {
       saveSessionEvent(token, session.id, { event_type: "code_edit", payload: { code: nextCode } })
         .then((event) => {
           setLastSavedAt(String(event.payload.autosaved_at ?? event.created_at));
@@ -285,7 +515,7 @@ function CandidateSessionContent() {
       window.clearTimeout(noteSaveTimer.current);
     }
     setIsSavingNotes(true);
-    noteSaveTimer.current = setTimeout(() => {
+    noteSaveTimer.current = window.setTimeout(() => {
       saveSessionEvent(token, session.id, { event_type: "note_updated", payload: { notes: nextNotes } })
         .then((event) => {
           setLastSavedAt(String(event.payload.autosaved_at ?? event.created_at));
@@ -299,15 +529,37 @@ function CandidateSessionContent() {
     }, 900);
   }
 
-  function handleCodeChange(value: string | undefined) {
-    const nextCode = value ?? "";
-    setCode(nextCode);
-    queueCodeAutosave(nextCode);
+  function handleEditorChange(value: string | undefined) {
+    const nextValue = value ?? "";
+    if (selectedFile) {
+      if (!selectedFile.is_editable || isSubmitted) {
+        return;
+      }
+      latestFileContents.current = { ...latestFileContents.current, [selectedFile.id]: nextValue };
+      setFileContents((current) => ({ ...current, [selectedFile.id]: nextValue }));
+      queueWorkspaceAutosave(selectedFile.id, nextValue);
+      return;
+    }
+
+    setLegacyCode(nextValue);
+    queueLegacyCodeAutosave(nextValue);
   }
 
   function handleNotesChange(value: string) {
     setNotes(value);
     queueNotesAutosave(value);
+  }
+
+  function handleSelectFile(file: WorkspaceFile) {
+    setSelectedFileId(file.id);
+    if (!token || !session || openedFileIds.current.has(file.id)) {
+      return;
+    }
+    openedFileIds.current.add(file.id);
+    void saveSessionEvent(token, session.id, {
+      event_type: "file_opened",
+      payload: { file_id: file.id, path: file.path },
+    }).catch(() => undefined);
   }
 
   async function handleRunTests() {
@@ -318,7 +570,10 @@ function CandidateSessionContent() {
     setIsRunningTests(true);
     setError(null);
     try {
-      const result = await runSessionTests(token, session.id, { code });
+      if (hasWorkspace) {
+        await flushPendingWorkspaceSaves();
+      }
+      const result = await runSessionTests(token, session.id, hasWorkspace ? {} : { code: legacyCode });
       setTestRun(result);
       setLastSavedAt(new Date().toISOString());
     } catch (requestError: unknown) {
@@ -336,19 +591,32 @@ function CandidateSessionContent() {
 
     setIsSubmitting(true);
     setError(null);
-    if (codeSaveTimer.current) {
-      window.clearTimeout(codeSaveTimer.current);
+    if (legacyCodeSaveTimer.current) {
+      window.clearTimeout(legacyCodeSaveTimer.current);
       setIsSavingCode(false);
     }
     if (noteSaveTimer.current) {
       window.clearTimeout(noteSaveTimer.current);
       setIsSavingNotes(false);
     }
+
     try {
+      if (hasWorkspace) {
+        await flushPendingWorkspaceSaves();
+      }
+      const submittedFiles = hasWorkspace
+        ? workspaceFiles.map((file) => ({
+            path: file.path,
+            content: latestFileContents.current[file.id] ?? file.current_content,
+            language: file.language,
+            file_type: file.file_type,
+          }))
+        : undefined;
       const createdSubmission = await submitSessionSolution(token, session.id, {
-        code,
+        code: selectedFile ? latestFileContents.current[selectedFile.id] ?? selectedFile.current_content : legacyCode,
         notes,
         test_output: testRun?.output ?? null,
+        submitted_files: submittedFiles,
       });
       setSubmission(createdSubmission);
       setSession({
@@ -360,6 +628,7 @@ function CandidateSessionContent() {
         submission: createdSubmission,
       });
       setLastSavedAt(createdSubmission.submitted_at);
+      setDirtyFileIds(new Set());
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to submit final solution.";
       setError(message);
@@ -374,10 +643,13 @@ function CandidateSessionContent() {
     }
 
     const question = copilotQuestion.trim();
+    const codeContext = selectedFile
+      ? `File: ${selectedFile.path}\n\n${latestFileContents.current[selectedFile.id] ?? selectedFile.current_content}`
+      : legacyCode;
     setIsAskingCopilot(true);
     setError(null);
     try {
-      const response = await askCandidateCopilot(token, session.id, { question, code });
+      const response = await askCandidateCopilot(token, session.id, { question, code: codeContext });
       setCopilotMessages((currentMessages) => [
         ...currentMessages,
         response.user_message,
@@ -394,18 +666,18 @@ function CandidateSessionContent() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-950/95 px-6 py-4">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
+      <header className="border-b border-slate-800 bg-slate-950/95 px-5 py-3">
+        <div className="mx-auto flex max-w-[1800px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
             <Link className="text-sm font-semibold text-cyan-300 hover:text-cyan-200" href="/">
               Nexterview
             </Link>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">
+            <h1 className="mt-1 truncate text-xl font-semibold tracking-tight">
               {session?.scenario.title ?? "Candidate interview room"}
             </h1>
             <p className="mt-1 text-sm text-slate-400">{user?.email}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="rounded-md border border-slate-700 px-3 py-2 font-mono text-slate-200">
               {formatDuration(elapsedSeconds)}
             </span>
@@ -415,109 +687,126 @@ function CandidateSessionContent() {
             <span className="rounded-md border border-slate-700 px-3 py-2 text-slate-400">
               Saved {formatSavedAt(lastSavedAt)}
             </span>
+            <Button disabled={isRunningTests || isSubmitted} onClick={() => void handleRunTests()} type="button">
+              {isRunningTests ? "Running..." : "Run tests"}
+            </Button>
+            <Button
+              disabled={
+                isSubmitting ||
+                isSubmitted ||
+                (hasWorkspace ? workspaceFiles.length === 0 : legacyCode.trim().length === 0)
+              }
+              onClick={() => void handleSubmit()}
+              type="button"
+            >
+              {isSubmitting ? "Submitting..." : isSubmitted ? "Submitted" : "Submit"}
+            </Button>
           </div>
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-7xl gap-4 px-6 py-5 lg:grid-cols-[320px_minmax(0,1fr)_320px]">
+      <section className="mx-auto grid max-w-[1800px] gap-4 px-4 py-4 xl:h-[calc(100vh-94px)] xl:grid-cols-[280px_minmax(0,1fr)_380px]">
         {isLoading ? (
-          <div className="lg:col-span-3 rounded-md border border-slate-800 bg-slate-900/70 p-6 text-slate-300">
-            Loading interview room...
+          <div className="xl:col-span-3 rounded-md border border-slate-800 bg-slate-900/70 p-6 text-slate-300">
+            Loading interview workspace...
           </div>
         ) : null}
 
         {error ? (
-          <p className="lg:col-span-3 rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm text-red-200">
+          <p className="xl:col-span-3 rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm text-red-200">
             {error}
           </p>
         ) : null}
 
         {session ? (
           <>
-            <aside className="grid content-start gap-4">
-              <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Task</p>
-                <h2 className="mt-2 text-lg font-semibold">{session.interview.role_title}</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-300">{session.scenario.business_context}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {session.interview.stack.map((item) => (
-                    <span className="rounded-md bg-slate-950 px-2.5 py-1 text-xs text-slate-300" key={item}>
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                <h3 className="text-sm font-semibold text-slate-100">Requirements</h3>
-                <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
-                  {session.scenario.technical_requirements.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </section>
-
-              <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                <h3 className="text-sm font-semibold text-slate-100">Expected behavior</h3>
-                <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
-                  {session.scenario.expected_behavior.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </section>
-
-              <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                <h3 className="text-sm font-semibold text-slate-100">Logs or bug report</h3>
-                <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-300">
-                  {session.scenario.logs_or_bug_report}
-                </pre>
-              </section>
-
-              {session.scenario.project ? <CandidateProjectPreview project={session.scenario.project} /> : null}
+            <aside className="min-h-0 overflow-hidden rounded-md border border-slate-800 bg-slate-900/70">
+              <div className="border-b border-slate-800 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Workspace</p>
+                <h2 className="mt-1 truncate text-sm font-semibold text-slate-100">
+                  {workspace?.project?.project_name ?? "Single-file task"}
+                </h2>
+                {workspace?.project ? (
+                  <div className="mt-3 grid gap-1 text-xs leading-5 text-slate-400">
+                    {workspace.project.install_command ? <span>Install: {workspace.project.install_command}</span> : null}
+                    {workspace.project.run_command ? <span>Run: {workspace.project.run_command}</span> : null}
+                    {workspace.project.test_command ? <span>Test: {workspace.project.test_command}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className="max-h-[42rem] overflow-auto p-2 xl:max-h-none">
+                {hasWorkspace ? (
+                  <FileTree
+                    dirtyFileIds={dirtyFileIds}
+                    files={workspaceFiles}
+                    onSelect={handleSelectFile}
+                    savingFileIds={savingFileIds}
+                    selectedFileId={selectedFileId}
+                  />
+                ) : (
+                  <button
+                    className="w-full rounded-md bg-cyan-950/70 px-2 py-2 text-left text-xs text-cyan-100"
+                    onClick={() => setSelectedFileId(null)}
+                    type="button"
+                  >
+                    starter-code.{languageForStack(session.interview.stack)}
+                  </button>
+                )}
+              </div>
             </aside>
 
-            <section className="grid min-h-[720px] grid-rows-[auto_minmax(420px,1fr)_auto] overflow-hidden rounded-md border border-slate-800 bg-slate-900/70">
+            <section className="grid min-h-[760px] grid-rows-[auto_minmax(420px,1fr)_minmax(220px,auto)] overflow-hidden rounded-md border border-slate-800 bg-slate-900/70 xl:min-h-0">
               <div className="flex flex-col gap-3 border-b border-slate-800 p-4 md:flex-row md:items-center md:justify-between">
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs uppercase tracking-wide text-slate-500">Editor</p>
-                  <p className="mt-1 text-sm text-slate-300">
-                    {isSavingCode ? "Saving code..." : isSubmitted ? "Final code locked" : "Autosaves after edits"}
+                  <p className="mt-1 truncate text-sm font-medium text-slate-200">
+                    {selectedFile?.path ?? "starter-code"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {selectedFile
+                      ? `${selectedFile.language} / ${selectedFile.file_type}${selectedFile.is_editable ? "" : " / read-only"}`
+                      : languageForStack(session.interview.stack)}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button disabled={isRunningTests || isSubmitted} onClick={() => void handleRunTests()} type="button">
-                    {isRunningTests ? "Running..." : "Run simulated tests"}
-                  </Button>
-                  <Button disabled={isSubmitting || isSubmitted || code.trim().length === 0} onClick={() => void handleSubmit()} type="button">
-                    {isSubmitting ? "Submitting..." : isSubmitted ? "Submitted" : "Submit final"}
-                  </Button>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                  {selectedFile && dirtyFileIds.has(selectedFile.id) ? <span className="text-amber-300">Unsaved changes</span> : null}
+                  {selectedFile && savingFileIds.has(selectedFile.id) ? <span className="text-cyan-300">Saving...</span> : null}
+                  {!selectedFile && isSavingCode ? <span className="text-cyan-300">Saving...</span> : null}
+                  {isSubmitted ? <span>Final submission locked</span> : null}
                 </div>
               </div>
               <div className="min-h-0">
                 <MonacoEditor
                   height="100%"
-                  language={languageForStack(session.interview.stack)}
-                  onChange={handleCodeChange}
+                  language={selectedFile ? monacoLanguage(selectedFile.language) : languageForStack(session.interview.stack)}
+                  onChange={handleEditorChange}
                   options={{
                     automaticLayout: true,
                     fontSize: 13,
                     minimap: { enabled: false },
-                    readOnly: isSubmitted,
+                    readOnly: isSubmitted || Boolean(selectedFile && !selectedFile.is_editable),
                     scrollBeyondLastLine: false,
                     wordWrap: "on",
                   }}
                   theme="vs-dark"
-                  value={code}
+                  value={selectedEditorValue}
                 />
               </div>
-              <section className="border-t border-slate-800 p-4">
-                <h3 className="text-sm font-semibold text-slate-100">Test run simulation</h3>
-                {testRun ? (
-                  <div className="mt-3 grid gap-3">
-                    <p className={testRun.status === "passed" ? "text-sm text-emerald-300" : "text-sm text-amber-300"}>
-                      {testRun.output}
-                    </p>
-                    <div className="grid gap-2">
+              <section className="grid gap-4 border-t border-slate-800 p-4 lg:grid-cols-2">
+                <div className="min-w-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-slate-100">Run output</h3>
+                    {testRun ? (
+                      <span className={testRun.status === "passed" ? "text-xs text-emerald-300" : "text-xs text-amber-300"}>
+                        {testRun.status}
+                      </span>
+                    ) : null}
+                  </div>
+                  {testRun ? (
+                    <div className="mt-3 grid max-h-52 gap-2 overflow-auto pr-1">
+                      <p className={testRun.status === "passed" ? "text-sm text-emerald-300" : "text-sm text-amber-300"}>
+                        {testRun.output}
+                      </p>
                       {testRun.cases.map((testCase) => (
                         <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm" key={testCase.name}>
                           <div className="flex items-center justify-between gap-3">
@@ -530,44 +819,101 @@ function CandidateSessionContent() {
                         </div>
                       ))}
                     </div>
-                  </div>
-                ) : (
-                  <p className="mt-2 text-sm text-slate-400">Run the simulated checks when you want feedback on the current code snapshot.</p>
-                )}
+                  ) : (
+                    <p className="mt-2 text-sm leading-6 text-slate-400">
+                      Simulated checks use the current session file snapshots and the project test command.
+                    </p>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-slate-100">Validation</h3>
+                  <p className="mt-3 max-h-52 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                    {session.scenario.validation_instructions || "Use the provided project tests and summarize your verification."}
+                  </p>
+                </div>
               </section>
             </section>
 
-            <aside className="grid content-start gap-4">
-              <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-slate-100">AI copilot</h3>
-                  <span className="text-xs text-slate-500">{session.interview.allowed_ai_mode}</span>
-                </div>
-                <div className="mt-3 grid max-h-[440px] gap-3 overflow-auto pr-1">
-                  {copilotMessages.length === 0 ? (
-                    <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
-                      Ask for implementation help, debugging hypotheses, code review, or a validation plan. Copilot receives the task, your current code, and prior chat history.
-                    </div>
-                  ) : (
-                    copilotMessages.map((message) => <CopilotMessage key={message.id} message={message} />)
-                  )}
-                </div>
-                <textarea
-                  className="mt-3 min-h-24 w-full resize-none rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
-                  disabled={isAskingCopilot}
-                  onChange={(event) => setCopilotQuestion(event.target.value)}
-                  placeholder="Ask for a hint, patch, debugging plan, or edge-case review."
-                  value={copilotQuestion}
-                />
-                <Button
-                  className="mt-3 w-full"
-                  disabled={isAskingCopilot || copilotQuestion.trim().length === 0}
-                  onClick={() => void handleAskCopilot()}
-                  type="button"
-                >
-                  {isAskingCopilot ? "Asking..." : "Ask copilot"}
-                </Button>
-              </section>
+            <aside className="grid min-h-0 gap-4 xl:grid-rows-[minmax(0,1fr)_auto]">
+              <div className="grid min-h-0 gap-4 overflow-auto pr-1">
+                <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Task</p>
+                  <h2 className="mt-2 text-lg font-semibold">{session.interview.role_title}</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{session.scenario.candidate_task_summary}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-400">{session.scenario.business_context}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {session.interview.stack.map((item) => (
+                      <span className="rounded-md bg-slate-950 px-2.5 py-1 text-xs text-slate-300" key={item}>
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
+                  <h3 className="text-sm font-semibold text-slate-100">Requirements</h3>
+                  <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
+                    {session.scenario.technical_requirements.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                  <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-300">
+                    <p>
+                      <span className="font-semibold text-slate-100">Bug:</span> {session.scenario.bug_description}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-slate-100">Feature:</span> {session.scenario.feature_request}
+                    </p>
+                  </div>
+                </section>
+
+                <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
+                  <h3 className="text-sm font-semibold text-slate-100">Expected behavior</h3>
+                  <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
+                    {session.scenario.expected_behavior.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
+                  <h3 className="text-sm font-semibold text-slate-100">Logs or bug report</h3>
+                  <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-300">
+                    {session.scenario.logs_or_bug_report}
+                  </pre>
+                </section>
+
+                <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-slate-100">AI copilot</h3>
+                    <span className="text-xs text-slate-500">{session.interview.allowed_ai_mode}</span>
+                  </div>
+                  <div className="mt-3 grid max-h-[360px] gap-3 overflow-auto pr-1">
+                    {copilotMessages.length === 0 ? (
+                      <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
+                        Ask for implementation help, debugging hypotheses, code review, or a validation plan.
+                      </div>
+                    ) : (
+                      copilotMessages.map((message) => <CopilotMessage key={message.id} message={message} />)
+                    )}
+                  </div>
+                  <textarea
+                    className="mt-3 min-h-24 w-full resize-none rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                    disabled={isAskingCopilot}
+                    onChange={(event) => setCopilotQuestion(event.target.value)}
+                    placeholder="Ask for a hint, patch, debugging plan, or edge-case review."
+                    value={copilotQuestion}
+                  />
+                  <Button
+                    className="mt-3 w-full"
+                    disabled={isAskingCopilot || copilotQuestion.trim().length === 0}
+                    onClick={() => void handleAskCopilot()}
+                    type="button"
+                  >
+                    {isAskingCopilot ? "Asking..." : "Ask copilot"}
+                  </Button>
+                </section>
+              </div>
 
               <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -575,27 +921,18 @@ function CandidateSessionContent() {
                   <span className="text-xs text-slate-500">{isSavingNotes ? "Saving..." : "Autosaved"}</span>
                 </div>
                 <textarea
-                  className="mt-3 min-h-64 w-full resize-y rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-200 outline-none focus:border-cyan-500"
+                  className="mt-3 min-h-40 w-full resize-y rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-200 outline-none focus:border-cyan-500"
                   disabled={isSubmitted}
                   onChange={(event) => handleNotesChange(event.target.value)}
                   placeholder="Explain the root cause, tradeoffs, validation steps, and what you changed."
                   value={notes}
                 />
+                {submission ? (
+                  <div className="mt-3 rounded-md border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
+                    Submitted at {formatSavedAt(submission.submitted_at)}.
+                  </div>
+                ) : null}
               </section>
-
-              <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                <h3 className="text-sm font-semibold text-slate-100">Candidate instructions</h3>
-                <p className="mt-3 text-sm leading-6 text-slate-300">{session.scenario.candidate_instructions}</p>
-              </section>
-
-              {submission ? (
-                <section className="rounded-md border border-emerald-900/70 bg-emerald-950/30 p-4">
-                  <h3 className="text-sm font-semibold text-emerald-100">Submission received</h3>
-                  <p className="mt-2 text-sm leading-6 text-emerald-200">
-                    Your final solution was submitted at {formatSavedAt(submission.submitted_at)}.
-                  </p>
-                </section>
-              ) : null}
             </aside>
           </>
         ) : null}

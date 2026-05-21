@@ -1,6 +1,6 @@
 # Nexterview
 
-Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation and copilot responses, candidate invite/session access, and a candidate interview room with telemetry.
+Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation and copilot responses, candidate invite/session access, and a candidate multi-file interview workspace with telemetry.
 
 ## Current Scope
 
@@ -25,6 +25,8 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `GET /api/invite/{token}`
   - `POST /api/invite/{token}/start`
   - `GET /api/sessions/{id}`
+  - `GET /api/sessions/{id}/workspace`
+  - `PUT /api/sessions/{id}/files/{file_id}`
   - `POST /api/sessions/{id}/events`
   - `POST /api/sessions/{id}/ai`
   - `POST /api/sessions/{id}/run-tests`
@@ -34,7 +36,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - OpenAI Responses API integration on the backend with strict Pydantic JSON validation for generated repo projects
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate interview room with markdown AI copilot
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate workspace with a nested file tree, snapshot autosave, markdown AI copilot, notes, run output, and final submit
 - Seed script with demo users and a sample generated interview scenario
 
 ## Architecture
@@ -174,7 +176,7 @@ Demo invite flow:
 1. Log in as `admin@nexterview.dev` or `interviewer@nexterview.dev`.
 2. Open `/interviews`, enter `candidate@nexterview.dev`, and generate an invite link.
 3. Open the invite link, log in as `candidate@nexterview.dev`, and start the interview.
-4. The candidate lands on `/sessions/{id}` with task context, a Monaco editor, notes, timer, AI copilot, test simulation, autosave, and final submit.
+4. The candidate lands on `/sessions/{id}` with task context, a nested project file tree, Monaco editor, notes, timer, AI copilot, test simulation, autosave, and final submit.
 
 ## API Contracts
 
@@ -302,6 +304,29 @@ Authorization: Bearer <candidate_access_token>
 
 The session response includes the candidate-safe task scenario, visible generated project files, `latest_code`, `notes`, `last_autosaved_at`, `ai_messages`, and the final `submission` when one exists. Candidate endpoints do not include hidden rubrics, hidden evaluation points, interviewer rubrics, or hidden project files.
 
+Read the candidate workspace:
+
+```http
+GET /api/sessions/{id}/workspace
+Authorization: Bearer <candidate_access_token>
+```
+
+The workspace response includes project metadata and visible `session_file_snapshots`. File IDs in this response are session snapshot IDs, not immutable `project_files` IDs. Candidate edits update snapshots only; original generated project files remain unchanged.
+
+Autosave a workspace file:
+
+```http
+PUT /api/sessions/{id}/files/{file_id}
+Authorization: Bearer <candidate_access_token>
+Content-Type: application/json
+
+{
+  "content": "from fastapi import FastAPI\n\napp = FastAPI()\n"
+}
+```
+
+The backend rejects hidden files, read-only files, and submitted sessions. Successful saves update `session_file_snapshots.current_content`, refresh `last_autosaved_at`, and record `file_edited` plus `file_saved` telemetry.
+
 Save a candidate room event:
 
 ```http
@@ -317,7 +342,7 @@ Content-Type: application/json
 }
 ```
 
-Supported telemetry event types are `session_started`, `code_edit`, `note_updated`, `test_run`, and `submission_created`. `code_edit` autosaves `latest_code`; `note_updated` autosaves the root cause notes. `test_run` and `submission_created` are created through their dedicated endpoints.
+Supported telemetry event types are `session_started`, `code_edit`, `file_opened`, `file_edited`, `file_saved`, `note_updated`, `test_run`, `ai_prompt_sent`, and `submission_created`. `code_edit` autosaves legacy single-file code; workspace file saves use the dedicated file endpoint. `note_updated` autosaves the root cause notes. `test_run`, `ai_prompt_sent`, and `submission_created` are created through their dedicated endpoints.
 
 Ask the candidate AI copilot:
 
@@ -332,7 +357,7 @@ Content-Type: application/json
 }
 ```
 
-The copilot receives the generated scenario, current candidate code, candidate question, previous `ai_messages`, and the interview's configured AI mode: `Hint Mode`, `Pair Programmer Mode`, `Senior Engineer Mode`, or `Debugging Assistant Mode`. The backend stores both the candidate prompt and the assistant response in `ai_messages`. The OpenAI key stays backend-only; the frontend only calls Nexterview's API.
+The copilot receives the generated scenario, visible workspace snapshot context when project files exist, the candidate question, previous `ai_messages`, and the interview's configured AI mode: `Hint Mode`, `Pair Programmer Mode`, `Senior Engineer Mode`, or `Debugging Assistant Mode`. The backend stores both the candidate prompt and the assistant response in `ai_messages` and records `ai_prompt_sent` telemetry. The OpenAI key stays backend-only; the frontend only calls Nexterview's API.
 
 Run the deterministic test simulation:
 
@@ -346,6 +371,8 @@ Content-Type: application/json
 }
 ```
 
+For multi-file sessions, omit `code` or send `{}`. The backend runs deterministic simulated checks against the current visible workspace snapshots, changed files, bug/feature signals, validation files, and the generated project `test_command`.
+
 Submit the final solution:
 
 ```http
@@ -354,21 +381,12 @@ Authorization: Bearer <candidate_access_token>
 Content-Type: application/json
 
 {
-  "code": "def handle_webhook(event):\n    return event\n",
   "notes": "Root cause and verification summary.",
-  "test_output": "4/4 simulated checks passed.",
-  "submitted_files": [
-    {
-      "path": "app/billing.py",
-      "content": "def charge_customer(...):\n    return receipt\n",
-      "language": "python",
-      "file_type": "source"
-    }
-  ]
+  "test_output": "6/6 simulated workspace checks passed."
 }
 ```
 
-`submitted_files` is optional for current single-file clients. If it is omitted and the session has file snapshots, the backend stores the current session snapshots as the submission fallback. Submission records also include reserved backend-owned fields for future GitHub branch, commit, repository, pull request, push status, and push error metadata.
+For multi-file sessions, `code` and `submitted_files` are optional. If `submitted_files` is omitted and the session has file snapshots, the backend stores the current visible session snapshots as the submission. Single-file clients can continue sending `code`. Submission records also include reserved backend-owned fields for future GitHub branch, commit, repository, pull request, push status, and push error metadata.
 
 Candidate session statuses are `invited`, `started`, `submitted`, and `reviewed`. Candidates can only access sessions where they are the session owner. Submitted or reviewed sessions no longer accept code edits, note updates, test runs, or duplicate final submissions.
 
@@ -446,15 +464,23 @@ curl -X POST http://localhost:8000/api/interviews/<interview_id>/invite \
 Candidate room smoke test:
 
 ```bash
+curl http://localhost:8000/api/sessions/<session_id>/workspace \
+  -H "Authorization: Bearer <candidate_access_token>"
+
+curl -X PUT http://localhost:8000/api/sessions/<session_id>/files/<workspace_file_id> \
+  -H "Authorization: Bearer <candidate_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"# updated candidate snapshot\n"}'
+
 curl -X POST http://localhost:8000/api/sessions/<session_id>/events \
   -H "Authorization: Bearer <candidate_access_token>" \
   -H "Content-Type: application/json" \
-  -d '{"event_type":"code_edit","payload":{"code":"def handle_webhook(event):\n    return event\n"}}'
+  -d '{"event_type":"file_opened","payload":{"file_id":"<workspace_file_id>","path":"app/main.py"}}'
 
 curl -X POST http://localhost:8000/api/sessions/<session_id>/run-tests \
   -H "Authorization: Bearer <candidate_access_token>" \
   -H "Content-Type: application/json" \
-  -d '{"code":"def handle_webhook(event):\n    return event\n"}'
+  -d '{}'
 
 curl -X POST http://localhost:8000/api/sessions/<session_id>/ai \
   -H "Authorization: Bearer <candidate_access_token>" \
@@ -464,7 +490,7 @@ curl -X POST http://localhost:8000/api/sessions/<session_id>/ai \
 curl -X POST http://localhost:8000/api/sessions/<session_id>/submit \
   -H "Authorization: Bearer <candidate_access_token>" \
   -H "Content-Type: application/json" \
-  -d '{"code":"def handle_webhook(event):\n    return event\n","notes":"Root cause and verification summary.","test_output":"Simulation completed."}'
+  -d '{"notes":"Root cause and verification summary.","test_output":"Simulation completed."}'
 ```
 
 ## Deployment Notes

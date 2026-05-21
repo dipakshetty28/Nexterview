@@ -164,7 +164,7 @@ class TestRunResult(BaseModel):
 
 
 class SubmissionCreate(BaseModel):
-    code: str = Field(min_length=1)
+    code: str = Field(default="", max_length=200000)
     notes: str = Field(default="", max_length=10000)
     test_output: str | None = Field(default=None, max_length=20000)
     submitted_files: list[SubmittedFileRead] = Field(default_factory=list, max_length=120)

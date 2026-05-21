@@ -44,7 +44,14 @@ from app.schemas.invite import (
     TestRunRequest,
     TestRunResult,
 )
-from app.schemas.project import CandidateProjectFileRead, CandidateScenarioProjectRead
+from app.schemas.project import (
+    CandidateProjectFileRead,
+    CandidateScenarioProjectRead,
+    CandidateWorkspaceFileRead,
+    CandidateWorkspaceFileUpdate,
+    CandidateWorkspaceProjectRead,
+    CandidateWorkspaceRead,
+)
 from app.services.copilot import CandidateCopilot
 from app.services.invites import hash_invite_token
 from app.services.scenario_projects import ensure_session_file_snapshots
@@ -193,6 +200,7 @@ def _get_candidate_session_for_user(db: Session, *, session_id: UUID, current_us
             .selectinload(ScenarioProject.files),
             selectinload(InterviewSession.submission),
             selectinload(InterviewSession.ai_messages),
+            selectinload(InterviewSession.file_snapshots).selectinload(SessionFileSnapshot.project_file),
         )
         .where(
             InterviewSession.id == session_id,
@@ -249,6 +257,80 @@ def _submitted_files_from_session_snapshots(db: Session, *, session: InterviewSe
     ]
 
 
+def _visible_session_snapshots(db: Session, *, session: InterviewSession) -> list[SessionFileSnapshot]:
+    ensure_session_file_snapshots(db, session=session)
+    return list(
+        db.execute(
+            select(SessionFileSnapshot)
+            .join(ProjectFile, SessionFileSnapshot.project_file_id == ProjectFile.id)
+            .options(selectinload(SessionFileSnapshot.project_file))
+            .where(SessionFileSnapshot.session_id == session.id)
+            .where(ProjectFile.is_hidden.is_(False))
+            .order_by(SessionFileSnapshot.path.asc())
+        ).scalars()
+    )
+
+
+def _workspace_file_response(snapshot: SessionFileSnapshot) -> CandidateWorkspaceFileRead:
+    project_file = snapshot.project_file
+    return CandidateWorkspaceFileRead(
+        id=snapshot.id,
+        project_file_id=snapshot.project_file_id,
+        path=snapshot.path,
+        original_content=snapshot.original_content,
+        current_content=snapshot.current_content,
+        language=snapshot.language,
+        file_type=project_file.file_type,
+        is_editable=project_file.is_editable,
+        updated_at=snapshot.updated_at,
+    )
+
+
+def _workspace_response(db: Session, *, session: InterviewSession) -> CandidateWorkspaceRead:
+    scenario = session.interview.scenario
+    if scenario is None or scenario.project is None:
+        return CandidateWorkspaceRead(
+            session_id=session.id,
+            project=None,
+            files=[],
+            last_autosaved_at=session.last_autosaved_at,
+        )
+
+    snapshots = _visible_session_snapshots(db, session=session)
+    return CandidateWorkspaceRead(
+        session_id=session.id,
+        project=CandidateWorkspaceProjectRead.model_validate(scenario.project),
+        files=[_workspace_file_response(snapshot) for snapshot in snapshots],
+        last_autosaved_at=session.last_autosaved_at,
+    )
+
+
+def _primary_code_from_snapshots(db: Session, *, session: InterviewSession) -> str:
+    snapshots = _visible_session_snapshots(db, session=session)
+    if not snapshots:
+        return session.latest_code or session.interview.scenario.starter_code
+
+    entrypoint = session.interview.scenario.project.entrypoint if session.interview.scenario.project else None
+    for snapshot in snapshots:
+        if entrypoint and snapshot.path == entrypoint:
+            return snapshot.current_content
+    for snapshot in snapshots:
+        if snapshot.project_file.file_type == "source":
+            return snapshot.current_content
+    return snapshots[0].current_content
+
+
+def _workspace_code_context(db: Session, *, session: InterviewSession, fallback_code: str) -> str:
+    snapshots = _visible_session_snapshots(db, session=session)
+    if not snapshots:
+        return fallback_code
+
+    parts: list[str] = []
+    for snapshot in snapshots:
+        parts.append(f"// File: {snapshot.path}\n{snapshot.current_content}")
+    return "\n\n".join(parts)
+
+
 def _payload_string(payload: dict[str, object], key: str, *, max_length: int) -> str:
     value = payload.get(key)
     if not isinstance(value, str):
@@ -272,6 +354,10 @@ def _test_keywords(session: InterviewSession) -> list[str]:
             " ".join(scenario.technical_requirements),
             " ".join(scenario.expected_behavior),
             scenario.logs_or_bug_report,
+            scenario.bug_description,
+            scenario.feature_request,
+            scenario.validation_instructions,
+            scenario.candidate_task_summary,
         ]
     )
     stopwords = {"about", "after", "being", "candidate", "should", "their", "there", "these", "where", "which", "with"}
@@ -334,6 +420,136 @@ def _simulate_test_run(session: InterviewSession, code: str) -> TestRunResult:
     return TestRunResult(status=run_status, output=output, cases=cases)
 
 
+def _scenario_terms(text: str) -> list[str]:
+    stopwords = {
+        "about",
+        "after",
+        "because",
+        "candidate",
+        "current",
+        "should",
+        "their",
+        "there",
+        "these",
+        "where",
+        "which",
+        "without",
+    }
+    terms: list[str] = []
+    for raw_token in text.lower().replace("/", " ").replace("-", " ").split():
+        token = "".join(character for character in raw_token if character.isalnum() or character == "_")
+        if len(token) < 5 or token in stopwords or token in terms:
+            continue
+        terms.append(token)
+        if len(terms) == 8:
+            break
+    return terms
+
+
+def _simulate_workspace_test_run(
+    session: InterviewSession,
+    snapshots: list[SessionFileSnapshot],
+) -> TestRunResult:
+    scenario = session.interview.scenario
+    project = scenario.project if scenario else None
+    visible_files = [snapshot for snapshot in snapshots if not snapshot.project_file.is_hidden]
+    changed_files = [snapshot for snapshot in visible_files if snapshot.current_content != snapshot.original_content]
+    test_files = [
+        snapshot
+        for snapshot in visible_files
+        if snapshot.project_file.file_type in {"test", "hidden_test"} or "test" in snapshot.path.lower()
+    ]
+    current_text = "\n\n".join(snapshot.current_content for snapshot in visible_files).lower()
+    changed_text = "\n\n".join(snapshot.current_content for snapshot in changed_files).lower()
+    bug_terms = _scenario_terms(scenario.bug_description if scenario else "")
+    feature_terms = _scenario_terms(scenario.feature_request if scenario else "")
+    bug_hits = [term for term in bug_terms if term in changed_text or term in current_text]
+    feature_hits = [term for term in feature_terms if term in changed_text or term in current_text]
+
+    quantity_bug_expected = scenario is not None and "quantity" in scenario.bug_description.lower()
+    quantity_bug_signal = (
+        not quantity_bug_expected
+        or ("quantity" in current_text and any(marker in current_text for marker in ("*", "sum(", "reduce(")))
+    )
+    status_feature_expected = scenario is not None and "status" in scenario.feature_request.lower()
+    status_feature_signal = (
+        not status_feature_expected
+        or (
+            "status" in current_text
+            and any(marker in current_text for marker in ("filter", "query", "where", "params", "status:"))
+        )
+    )
+
+    cases = [
+        TestCaseResult(
+            name="workspace-files-present",
+            status="passed" if len(visible_files) >= 2 else "failed",
+            details=(
+                f"Loaded {len(visible_files)} visible project files from session snapshots."
+                if visible_files
+                else "No visible project files were available for this session."
+            ),
+        ),
+        TestCaseResult(
+            name="candidate-changed-files",
+            status="passed" if changed_files else "failed",
+            details=(
+                f"Detected edits in: {', '.join(snapshot.path for snapshot in changed_files[:5])}."
+                if changed_files
+                else "No changed files were detected yet."
+            ),
+        ),
+        TestCaseResult(
+            name="bug-fix-signal",
+            status="passed" if bug_hits or quantity_bug_signal else "failed",
+            details=(
+                f"Code references bug-related terms: {', '.join(bug_hits[:4])}."
+                if bug_hits
+                else (
+                    "Detected quantity-aware total calculation logic."
+                    if quantity_bug_signal
+                    else "The changed files do not yet show clear evidence of addressing the described bug."
+                )
+            ),
+        ),
+        TestCaseResult(
+            name="feature-request-signal",
+            status="passed" if feature_hits or status_feature_signal else "failed",
+            details=(
+                f"Code references feature-related terms: {', '.join(feature_hits[:4])}."
+                if feature_hits
+                else (
+                    "Detected status filtering implementation signals."
+                    if status_feature_signal
+                    else "The changed files do not yet show clear evidence of the requested feature."
+                )
+            ),
+        ),
+        TestCaseResult(
+            name="validation-coverage",
+            status="passed" if test_files else "failed",
+            details=(
+                f"Validation files available: {', '.join(snapshot.path for snapshot in test_files[:4])}."
+                if test_files
+                else "No visible test or validation file exists in the workspace."
+            ),
+        ),
+        TestCaseResult(
+            name="runnable-command-known",
+            status="passed" if project and project.test_command else "failed",
+            details=(
+                f"Simulation is based on `{project.test_command}`."
+                if project and project.test_command
+                else "The project does not define a test command."
+            ),
+        ),
+    ]
+    passed_count = sum(1 for case in cases if case.status == "passed")
+    run_status = "passed" if passed_count == len(cases) else "failed"
+    output = f"{passed_count}/{len(cases)} simulated workspace checks passed."
+    return TestRunResult(status=run_status, output=output, cases=cases)
+
+
 @router.get("/invite/{token}", response_model=PublicInviteRead)
 def get_invite(token: str, db: Annotated[Session, Depends(get_db)]) -> PublicInviteRead:
     return _public_invite_response(_get_invite_by_token(db, token))
@@ -393,6 +609,93 @@ def get_candidate_session(
     return _session_response(_get_candidate_session_for_user(db, session_id=session_id, current_user=current_user))
 
 
+@router.get("/sessions/{session_id}/workspace", response_model=CandidateWorkspaceRead)
+def get_candidate_workspace(
+    session_id: UUID,
+    current_user: Annotated[User, Depends(require_roles(UserRole.CANDIDATE))],
+    db: Annotated[Session, Depends(get_db)],
+) -> CandidateWorkspaceRead:
+    session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
+    workspace = _workspace_response(db, session=session)
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load candidate workspace.",
+        ) from exc
+    return workspace
+
+
+@router.put("/sessions/{session_id}/files/{file_id}", response_model=CandidateWorkspaceFileRead)
+def update_candidate_workspace_file(
+    session_id: UUID,
+    file_id: UUID,
+    payload: CandidateWorkspaceFileUpdate,
+    current_user: Annotated[User, Depends(require_roles(UserRole.CANDIDATE))],
+    db: Annotated[Session, Depends(get_db)],
+) -> CandidateWorkspaceFileRead:
+    session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
+    _ensure_session_accepts_work(session)
+    ensure_session_file_snapshots(db, session=session)
+    snapshot = db.execute(
+        select(SessionFileSnapshot)
+        .join(ProjectFile, SessionFileSnapshot.project_file_id == ProjectFile.id)
+        .options(selectinload(SessionFileSnapshot.project_file))
+        .where(SessionFileSnapshot.id == file_id)
+        .where(SessionFileSnapshot.session_id == session.id)
+        .where(ProjectFile.is_hidden.is_(False))
+    ).scalar_one_or_none()
+    if snapshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace file was not found.")
+    if not snapshot.project_file.is_editable:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This workspace file is read-only.")
+
+    now = _now_utc()
+    changed = snapshot.current_content != payload.content
+    snapshot.current_content = payload.content
+    session.last_autosaved_at = now
+    if session.interview.scenario.project and session.interview.scenario.project.entrypoint == snapshot.path:
+        session.latest_code = payload.content
+
+    try:
+        _create_event(
+            db,
+            session=session,
+            event_type=TelemetryEventType.FILE_EDITED,
+            payload={
+                "file_id": str(snapshot.id),
+                "project_file_id": str(snapshot.project_file_id),
+                "path": snapshot.path,
+                "content_length": len(payload.content),
+                "changed": changed,
+            },
+        )
+        _create_event(
+            db,
+            session=session,
+            event_type=TelemetryEventType.FILE_SAVED,
+            payload={
+                "file_id": str(snapshot.id),
+                "project_file_id": str(snapshot.project_file_id),
+                "path": snapshot.path,
+                "content_length": len(payload.content),
+                "saved_at": now.isoformat(),
+            },
+        )
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save workspace file.",
+        ) from exc
+
+    db.refresh(snapshot)
+    return _workspace_file_response(snapshot)
+
+
 @router.post("/sessions/{session_id}/events", response_model=TelemetryEventRead, status_code=status.HTTP_201_CREATED)
 def save_session_event(
     session_id: UUID,
@@ -424,6 +727,19 @@ def save_session_event(
         session.notes = notes
         session.last_autosaved_at = now
         event_payload = {"note_length": len(notes), "autosaved_at": now.isoformat()}
+    elif payload.event_type == TelemetryEventType.FILE_OPENED:
+        path = event_payload.get("path")
+        event_payload = {
+            "file_id": str(event_payload.get("file_id", "")),
+            "path": path if isinstance(path, str) else "",
+            "opened_at": now.isoformat(),
+        }
+    elif payload.event_type in {
+        TelemetryEventType.FILE_EDITED,
+        TelemetryEventType.FILE_SAVED,
+        TelemetryEventType.AI_PROMPT_SENT,
+    }:
+        _ensure_session_accepts_work(session)
     elif payload.event_type in {TelemetryEventType.TEST_RUN, TelemetryEventType.SUBMISSION_CREATED}:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -450,11 +766,22 @@ def run_session_tests(
 ) -> TestRunResult:
     session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
     _ensure_session_accepts_work(session)
-    code = payload.code if payload.code is not None else session.latest_code or session.interview.scenario.starter_code
-    result = _simulate_test_run(session, code)
+    visible_snapshots = _visible_session_snapshots(db, session=session)
+    if payload.code is not None or not visible_snapshots:
+        code = payload.code if payload.code is not None else session.latest_code or session.interview.scenario.starter_code
+        result = _simulate_test_run(session, code)
+        code_length = len(code)
+        changed_file_count = 0
+        session.latest_code = code
+    else:
+        result = _simulate_workspace_test_run(session, visible_snapshots)
+        code_length = sum(len(snapshot.current_content) for snapshot in visible_snapshots)
+        changed_file_count = sum(
+            1 for snapshot in visible_snapshots if snapshot.current_content != snapshot.original_content
+        )
+        session.latest_code = _primary_code_from_snapshots(db, session=session)
     now = _now_utc()
 
-    session.latest_code = code
     session.last_autosaved_at = now
     _create_event(
         db,
@@ -463,8 +790,10 @@ def run_session_tests(
         payload={
             "status": result.status,
             "output": result.output,
-            "code_length": len(code),
+            "code_length": code_length,
+            "changed_file_count": changed_file_count,
             "case_count": len(result.cases),
+            "test_command": session.interview.scenario.project.test_command if session.interview.scenario.project else None,
         },
     )
 
@@ -487,23 +816,26 @@ def submit_session_solution(
     session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
     _ensure_session_accepts_work(session)
     now = _now_utc()
+    visible_snapshots = _visible_session_snapshots(db, session=session)
+    submitted_files = (
+        [submitted_file.model_dump() for submitted_file in payload.submitted_files]
+        or _submitted_files_from_session_snapshots(db, session=session)
+    )
+    code = payload.code or _primary_code_from_snapshots(db, session=session)
     submission = Submission(
         organization_id=session.organization_id,
         session_id=session.id,
         candidate_id=session.candidate_id,
-        code=payload.code,
+        code=code,
         notes=payload.notes,
         test_output=payload.test_output,
-        submitted_files=(
-            [submitted_file.model_dump() for submitted_file in payload.submitted_files]
-            or _submitted_files_from_session_snapshots(db, session=session)
-        ),
+        submitted_files=submitted_files,
         push_status="not_configured",
         submitted_at=now,
     )
     db.add(submission)
 
-    session.latest_code = payload.code
+    session.latest_code = code
     session.notes = payload.notes
     session.last_autosaved_at = now
     session.status = InterviewSessionStatus.SUBMITTED
@@ -517,8 +849,12 @@ def submit_session_solution(
             event_type=TelemetryEventType.SUBMISSION_CREATED,
             payload={
                 "submission_id": str(submission.id),
-                "code_length": len(payload.code),
+                "code_length": len(code),
                 "note_length": len(payload.notes),
+                "submitted_file_count": len(submitted_files),
+                "changed_file_count": sum(
+                    1 for snapshot in visible_snapshots if snapshot.current_content != snapshot.original_content
+                ),
             },
         )
         db.commit()
@@ -547,9 +883,10 @@ def ask_candidate_copilot(
             select(AIMessage)
             .where(AIMessage.session_id == session.id)
             .order_by(AIMessage.created_at.asc())
-        ).scalars()
+    ).scalars()
     )
-    code_snapshot = payload.code or session.latest_code or session.interview.scenario.starter_code
+    fallback_code = payload.code or session.latest_code or session.interview.scenario.starter_code
+    code_snapshot = _workspace_code_context(db, session=session, fallback_code=fallback_code)
     ai_mode = session.interview.allowed_ai_mode
 
     user_message = AIMessage(
@@ -564,6 +901,16 @@ def ask_candidate_copilot(
         message_metadata={},
     )
     db.add(user_message)
+    _create_event(
+        db,
+        session=session,
+        event_type=TelemetryEventType.AI_PROMPT_SENT,
+        payload={
+            "question_length": len(payload.question),
+            "code_snapshot_length": len(code_snapshot),
+            "ai_mode": ai_mode,
+        },
+    )
 
     result = copilot.generate_reply(
         session=session,

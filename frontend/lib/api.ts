@@ -1,6 +1,7 @@
 import type {
   AuthResponse,
   AICopilotResponse,
+  CandidateWorkspace,
   CandidateSession,
   DashboardResponse,
   Interview,
@@ -13,12 +14,13 @@ import type {
   TelemetryEventType,
   TestRunResult,
   User,
+  WorkspaceFile,
 } from "@/lib/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 type ApiRequestOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   body?: unknown;
   token?: string;
 };
@@ -144,6 +146,23 @@ export function getCandidateSession(token: string, sessionId: string): Promise<C
   return apiRequest<CandidateSession>(`/api/sessions/${sessionId}`, { token });
 }
 
+export function getCandidateWorkspace(token: string, sessionId: string): Promise<CandidateWorkspace> {
+  return apiRequest<CandidateWorkspace>(`/api/sessions/${sessionId}/workspace`, { token });
+}
+
+export function updateWorkspaceFile(
+  token: string,
+  sessionId: string,
+  fileId: string,
+  input: { content: string },
+): Promise<WorkspaceFile> {
+  return apiRequest<WorkspaceFile>(`/api/sessions/${sessionId}/files/${fileId}`, {
+    method: "PUT",
+    token,
+    body: input,
+  });
+}
+
 export function askCandidateCopilot(
   token: string,
   sessionId: string,
@@ -168,7 +187,7 @@ export function saveSessionEvent(
   });
 }
 
-export function runSessionTests(token: string, sessionId: string, input: { code: string }): Promise<TestRunResult> {
+export function runSessionTests(token: string, sessionId: string, input: { code?: string } = {}): Promise<TestRunResult> {
   return apiRequest<TestRunResult>(`/api/sessions/${sessionId}/run-tests`, {
     method: "POST",
     token,
@@ -179,7 +198,12 @@ export function runSessionTests(token: string, sessionId: string, input: { code:
 export function submitSessionSolution(
   token: string,
   sessionId: string,
-  input: { code: string; notes: string; test_output?: string | null },
+  input: {
+    code?: string;
+    notes: string;
+    test_output?: string | null;
+    submitted_files?: Array<{ path: string; content: string; language: string; file_type?: string | null }>;
+  },
 ): Promise<Submission> {
   return apiRequest<Submission>(`/api/sessions/${sessionId}/submit`, {
     method: "POST",

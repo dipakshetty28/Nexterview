@@ -62,6 +62,38 @@ export type ScenarioProject = {
   updated_at?: string;
 };
 
+export type WorkspaceFile = {
+  id: string;
+  project_file_id: string;
+  path: string;
+  original_content: string;
+  current_content: string;
+  language: string;
+  file_type: string;
+  is_editable: boolean;
+  updated_at: string;
+};
+
+export type WorkspaceProject = {
+  id: string;
+  project_name: string;
+  stack: string[];
+  description: string;
+  framework: string | null;
+  package_manager: string | null;
+  install_command: string | null;
+  run_command: string | null;
+  test_command: string | null;
+  entrypoint: string | null;
+};
+
+export type CandidateWorkspace = {
+  session_id: string;
+  project: WorkspaceProject | null;
+  files: WorkspaceFile[];
+  last_autosaved_at: string | null;
+};
+
 export type Scenario = {
   id: string;
   interview_id: string;
@@ -201,7 +233,16 @@ export type AICopilotResponse = {
   assistant_message: AIMessage;
 };
 
-export type TelemetryEventType = "session_started" | "code_edit" | "note_updated" | "test_run" | "submission_created";
+export type TelemetryEventType =
+  | "session_started"
+  | "code_edit"
+  | "file_opened"
+  | "file_edited"
+  | "file_saved"
+  | "note_updated"
+  | "test_run"
+  | "ai_prompt_sent"
+  | "submission_created";
 
 export type TelemetryEvent = {
   id: string;

@@ -256,6 +256,44 @@ class SessionFileSnapshotRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CandidateWorkspaceFileRead(BaseModel):
+    id: UUID
+    project_file_id: UUID
+    path: str
+    original_content: str
+    current_content: str
+    language: str
+    file_type: str
+    is_editable: bool
+    updated_at: datetime
+
+
+class CandidateWorkspaceProjectRead(BaseModel):
+    id: UUID
+    project_name: str
+    stack: list[str]
+    description: str
+    framework: str | None
+    package_manager: str | None
+    install_command: str | None
+    run_command: str | None
+    test_command: str | None
+    entrypoint: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateWorkspaceRead(BaseModel):
+    session_id: UUID
+    project: CandidateWorkspaceProjectRead | None
+    files: list[CandidateWorkspaceFileRead] = Field(default_factory=list)
+    last_autosaved_at: datetime | None
+
+
+class CandidateWorkspaceFileUpdate(BaseModel):
+    content: str = Field(max_length=400000)
+
+
 class SubmittedFileRead(BaseModel):
     path: str
     content: str

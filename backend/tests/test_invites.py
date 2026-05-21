@@ -25,7 +25,9 @@ from app.models import (
     InviteToken,
     Organization,
     OrganizationMember,
+    ProjectFile,
     Scenario,
+    SessionFileSnapshot,
     Submission,
     TelemetryEvent,
     TelemetryEventType,
@@ -43,7 +45,9 @@ _ = (
     InviteToken,
     Organization,
     OrganizationMember,
+    ProjectFile,
     Scenario,
+    SessionFileSnapshot,
     Submission,
     TelemetryEvent,
     User,
@@ -283,7 +287,7 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
         ) -> CopilotResult:
             assert str(session.id) == session_id
             assert "idempotency" in question.lower()
-            assert code == edited_code
+            assert "File: app/main.py" in code
             if self.calls == 0:
                 assert previous_messages == []
                 content = "Try extracting the idempotency key before the retry loop.\n\n```python\nkey = invoice_id\n```"
@@ -308,7 +312,7 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert ai_response.status_code == 201
     ai_exchange = ai_response.json()
     assert ai_exchange["user_message"]["role"] == "user"
-    assert ai_exchange["user_message"]["code_snapshot"] == edited_code
+    assert "File: app/main.py" in ai_exchange["user_message"]["code_snapshot"]
     assert ai_exchange["assistant_message"]["role"] == "assistant"
     assert ai_exchange["assistant_message"]["ai_model"] == "test-copilot"
     assert "```python" in ai_exchange["assistant_message"]["content"]
@@ -377,6 +381,7 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert TelemetryEventType.CODE_EDIT in event_types
     assert TelemetryEventType.NOTE_UPDATED in event_types
     assert TelemetryEventType.TEST_RUN in event_types
+    assert TelemetryEventType.AI_PROMPT_SENT in event_types
     assert TelemetryEventType.SUBMISSION_CREATED in event_types
 
     db_generator = app.dependency_overrides[get_db]()
@@ -393,6 +398,134 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     ]
     assert ai_messages[0].content == "How should I fix the idempotency bug?"
     assert "idempotency key" in ai_messages[1].content
+
+
+def test_candidate_workspace_edits_snapshots_and_submits_files(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    _create_candidate(client, email="workspace@example.com", full_name="Workspace Candidate")
+    interview_id = _create_ready_interview(client, token=admin_token)
+    invite_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "workspace@example.com"},
+    )
+    assert invite_response.status_code == 201
+    raw_invite_token = urlparse(invite_response.json()["invite_url"]).path.rsplit("/", 1)[-1]
+    candidate_login = client.post(
+        "/api/auth/login",
+        json={"email": "workspace@example.com", "password": "StrongPass123!"},
+    )
+    assert candidate_login.status_code == 200
+    candidate_token = candidate_login.json()["access_token"]
+    start_response = client.post(
+        f"/api/invite/{raw_invite_token}/start",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert start_response.status_code == 200
+    session = start_response.json()
+
+    workspace_response = client.get(
+        f"/api/sessions/{session['id']}/workspace",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert workspace_response.status_code == 200
+    workspace = workspace_response.json()
+    assert workspace["project"]["project_name"] == "orders-review-api"
+    paths = {workspace_file["path"] for workspace_file in workspace["files"]}
+    assert "app/main.py" in paths
+    assert "app/services/orders.py" in paths
+    assert "tests/test_orders_hidden.py" not in paths
+
+    files_by_path = {workspace_file["path"]: workspace_file for workspace_file in workspace["files"]}
+    main_file = files_by_path["app/main.py"]
+    service_file = files_by_path["app/services/orders.py"]
+    opened_response = client.post(
+        f"/api/sessions/{session['id']}/events",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"event_type": "file_opened", "payload": {"file_id": main_file["id"], "path": main_file["path"]}},
+    )
+    assert opened_response.status_code == 201
+
+    fixed_service = service_file["current_content"].replace(
+        'return round(sum(item["unit_price"] for item in order["items"]), 2)',
+        'return round(sum(item["unit_price"] * item["quantity"] for item in order["items"]), 2)',
+    )
+    service_update_response = client.put(
+        f"/api/sessions/{session['id']}/files/{service_file['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"content": fixed_service},
+    )
+    assert service_update_response.status_code == 200
+    assert service_update_response.json()["current_content"] == fixed_service
+
+    fixed_main = main_file["current_content"].replace(
+        "def list_orders() -> list[dict[str, object]]:\n"
+        "    return [summarize_order(order) for order in load_orders()]\n",
+        "def list_orders(status: str | None = None) -> list[dict[str, object]]:\n"
+        "    orders = load_orders()\n"
+        "    if status is not None:\n"
+        "        orders = [order for order in orders if order[\"status\"] == status]\n"
+        "    return [summarize_order(order) for order in orders]\n",
+    )
+    main_update_response = client.put(
+        f"/api/sessions/{session['id']}/files/{main_file['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"content": fixed_main},
+    )
+    assert main_update_response.status_code == 200
+
+    workspace_after_update = client.get(
+        f"/api/sessions/{session['id']}/workspace",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    ).json()
+    updated_files_by_path = {workspace_file["path"]: workspace_file for workspace_file in workspace_after_update["files"]}
+    assert updated_files_by_path["app/services/orders.py"]["original_content"] != fixed_service
+    assert updated_files_by_path["app/services/orders.py"]["current_content"] == fixed_service
+
+    run_response = client.post(
+        f"/api/sessions/{session['id']}/run-tests",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={},
+    )
+    assert run_response.status_code == 200
+    test_run = run_response.json()
+    assert test_run["status"] == "passed"
+    assert "simulated workspace checks" in test_run["output"]
+
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"notes": "Fixed totals, added status filtering, and ran the simulated checks.", "test_output": test_run["output"]},
+    )
+    assert submit_response.status_code == 201
+    submission = submit_response.json()
+    submitted_by_path = {submitted_file["path"]: submitted_file for submitted_file in submission["submitted_files"]}
+    assert submitted_by_path["app/services/orders.py"]["content"] == fixed_service
+    assert submitted_by_path["app/main.py"]["content"] == fixed_main
+    assert "tests/test_orders_hidden.py" not in submitted_by_path
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        service_snapshot = db.execute(
+            select(SessionFileSnapshot)
+            .join(ProjectFile, SessionFileSnapshot.project_file_id == ProjectFile.id)
+            .where(ProjectFile.path == "app/services/orders.py")
+        ).scalar_one()
+        event_types = [event.event_type for event in db.execute(select(TelemetryEvent)).scalars()]
+    finally:
+        db.close()
+    assert service_snapshot.current_content == fixed_service
+    assert service_snapshot.original_content != fixed_service
+    assert TelemetryEventType.FILE_OPENED in event_types
+    assert TelemetryEventType.FILE_EDITED in event_types
+    assert TelemetryEventType.FILE_SAVED in event_types
+    assert TelemetryEventType.TEST_RUN in event_types
+    assert TelemetryEventType.SUBMISSION_CREATED in event_types
 
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

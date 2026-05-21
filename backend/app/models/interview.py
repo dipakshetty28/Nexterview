@@ -21,8 +21,12 @@ class InterviewSessionStatus(str, enum.Enum):
 class TelemetryEventType(str, enum.Enum):
     SESSION_STARTED = "session_started"
     CODE_EDIT = "code_edit"
+    FILE_OPENED = "file_opened"
+    FILE_EDITED = "file_edited"
+    FILE_SAVED = "file_saved"
     NOTE_UPDATED = "note_updated"
     TEST_RUN = "test_run"
+    AI_PROMPT_SENT = "ai_prompt_sent"
     SUBMISSION_CREATED = "submission_created"
 
 
