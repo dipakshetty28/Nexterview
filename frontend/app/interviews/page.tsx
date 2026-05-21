@@ -272,7 +272,7 @@ function InterviewsContent() {
                     </span>
                   </div>
                   <p className="mt-2 text-sm text-slate-400">
-                    {interview.seniority} · {interview.difficulty} · {interview.duration_minutes} minutes
+                    {interview.seniority} / {interview.difficulty} / {interview.duration_minutes} minutes
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {interview.stack.map((item) => (

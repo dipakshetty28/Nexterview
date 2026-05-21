@@ -43,6 +43,13 @@ async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Pro
   return payload as T;
 }
 
+function assertInterviewList(payload: unknown): Interview[] {
+  if (Array.isArray(payload)) {
+    return payload as Interview[];
+  }
+  throw new ApiError("Unexpected response while loading interviews.", 502);
+}
+
 export function registerAccount(input: {
   email: string;
   password: string;
@@ -70,8 +77,9 @@ export function getDashboard(token: string): Promise<DashboardResponse> {
   return apiRequest<DashboardResponse>("/api/dashboard", { token });
 }
 
-export function getInterviews(token: string): Promise<Interview[]> {
-  return apiRequest<Interview[]>("/api/interviews", { token });
+export async function getInterviews(token: string): Promise<Interview[]> {
+  const payload = await apiRequest<unknown>("/api/interviews", { token });
+  return assertInterviewList(payload);
 }
 
 export function createInterview(token: string, input: InterviewCreateInput): Promise<Interview> {
