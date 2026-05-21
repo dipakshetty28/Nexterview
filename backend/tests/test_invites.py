@@ -15,7 +15,17 @@ from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import Interview, InterviewSession, InviteToken, Organization, OrganizationMember, Scenario, User, UserRole
+from app.models import (
+    Interview,
+    InterviewSession,
+    InterviewSessionStatus,
+    InviteToken,
+    Organization,
+    OrganizationMember,
+    Scenario,
+    User,
+    UserRole,
+)
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -173,6 +183,16 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     )
     assert admin_session_response.status_code == 403
 
+    reinvite_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "candidate@example.com"},
+    )
+    assert reinvite_response.status_code == 201
+    reinvite = reinvite_response.json()
+    assert reinvite["session_id"] == session["id"]
+    assert reinvite["invite_url"] != invite["invite_url"]
+
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "")
@@ -187,3 +207,35 @@ def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytes
 
     assert response.status_code == 404
     assert response.json()["detail"] == "No active candidate account with that email exists in this organization."
+
+
+def test_invite_rejects_submitted_session(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    _create_candidate(client, email="candidate@example.com", full_name="Candidate User")
+    interview_id = _create_ready_interview(client, token=admin_token)
+
+    invite_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "candidate@example.com"},
+    )
+    assert invite_response.status_code == 201
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        session = db.execute(select(InterviewSession)).scalar_one()
+        session.status = InterviewSessionStatus.SUBMITTED
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "candidate@example.com"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This candidate already has a submitted or reviewed session for the interview."
