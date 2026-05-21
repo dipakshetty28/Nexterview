@@ -78,3 +78,62 @@ export type InterviewCreateInput = {
   allowed_ai_mode: string;
   evaluation_criteria: string[];
 };
+
+export type InviteTokenResponse = {
+  id: string;
+  interview_id: string;
+  session_id: string;
+  candidate_email: string;
+  invite_url: string;
+  expires_at: string;
+  used_at: string | null;
+};
+
+export type PublicInvite = {
+  interview: {
+    id: string;
+    role_title: string;
+    seniority: string;
+    stack: string[];
+    difficulty: string;
+    interview_type: string;
+    duration_minutes: number;
+    allowed_ai_mode: string;
+    scenario_title: string | null;
+  };
+  candidate_email: string;
+  expires_at: string;
+  status: "invited" | "started" | "submitted" | "reviewed";
+};
+
+export type CandidateSession = {
+  id: string;
+  interview_id: string;
+  candidate_id: string;
+  status: "invited" | "started" | "submitted" | "reviewed";
+  started_at: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  interview: {
+    id: string;
+    role_title: string;
+    seniority: string;
+    stack: string[];
+    difficulty: string;
+    interview_type: string;
+    duration_minutes: number;
+    allowed_ai_mode: string;
+  };
+  scenario: {
+    id: string;
+    title: string;
+    business_context: string;
+    technical_requirements: string[];
+    starter_code: string;
+    expected_behavior: string[];
+    logs_or_bug_report: string;
+    candidate_instructions: string;
+  };
+};

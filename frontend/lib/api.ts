@@ -1,4 +1,14 @@
-import type { AuthResponse, DashboardResponse, Interview, InterviewCreateInput, Scenario, User } from "@/lib/types";
+import type {
+  AuthResponse,
+  CandidateSession,
+  DashboardResponse,
+  Interview,
+  InterviewCreateInput,
+  InviteTokenResponse,
+  PublicInvite,
+  Scenario,
+  User,
+} from "@/lib/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -100,4 +110,31 @@ export function generateScenario(token: string, interviewId: string): Promise<Sc
     method: "POST",
     token,
   });
+}
+
+export function createCandidateInvite(
+  token: string,
+  interviewId: string,
+  input: { candidate_email: string },
+): Promise<InviteTokenResponse> {
+  return apiRequest<InviteTokenResponse>(`/api/interviews/${interviewId}/invite`, {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export function getInvite(inviteToken: string): Promise<PublicInvite> {
+  return apiRequest<PublicInvite>(`/api/invite/${inviteToken}`);
+}
+
+export function startInviteSession(token: string, inviteToken: string): Promise<CandidateSession> {
+  return apiRequest<CandidateSession>(`/api/invite/${inviteToken}/start`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function getCandidateSession(token: string, sessionId: string): Promise<CandidateSession> {
+  return apiRequest<CandidateSession>(`/api/sessions/${sessionId}`, { token });
 }
