@@ -1,3 +1,4 @@
+<<<<<<< ours
 # Nexterview
 
 <<<<<<< ours
@@ -287,4 +288,38 @@ The endpoint requires an authenticated interviewer in the same organization as t
 <<<<<<< ours
 >>>>>>> theirs
 =======
+>>>>>>> theirs
+=======
+# Nexterview Backend (Scenario Generation)
+
+This repository contains a FastAPI backend slice for AI-powered interview scenario generation.
+
+## Endpoint
+
+- `POST /api/interviews/{id}/generate-scenario`
+
+Generates a realistic engineering scenario from interview configuration, validates structured JSON with Pydantic, stores the scenario, and returns it.
+
+## OpenAI integration
+
+- OpenAI is used **backend-only** via server-side environment variables.
+- The OpenAI API key is never returned in any API response.
+- If `OPENAI_API_KEY` is missing, the service gracefully falls back to deterministic local scenario generation.
+
+## Environment
+
+Copy `.env.example` to `.env` and set values.
+
+## Run
+
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+## Test
+
+```bash
+pytest -q
+```
 >>>>>>> theirs
