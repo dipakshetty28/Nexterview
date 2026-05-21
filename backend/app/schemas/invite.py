@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.interview import AIMessageRole, InterviewSessionStatus, TelemetryEventType
-from app.schemas.project import SubmittedFileRead
+from app.schemas.project import CandidateScenarioProjectRead, SubmittedFileRead
 
 
 class InviteCreateRequest(BaseModel):
@@ -57,6 +57,7 @@ class CandidateScenarioRead(BaseModel):
     validation_instructions: str
     candidate_task_summary: str
     candidate_instructions: str
+    project: CandidateScenarioProjectRead | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

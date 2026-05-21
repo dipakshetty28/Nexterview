@@ -18,6 +18,9 @@ from app.models.interview import (
     InterviewSession,
     InterviewSessionStatus,
     InviteToken,
+    ProjectFile,
+    Scenario,
+    ScenarioProject,
     SessionFileSnapshot,
     Submission,
     TelemetryEvent,
@@ -41,6 +44,7 @@ from app.schemas.invite import (
     TestRunRequest,
     TestRunResult,
 )
+from app.schemas.project import CandidateProjectFileRead, CandidateScenarioProjectRead
 from app.services.copilot import CandidateCopilot
 from app.services.invites import hash_invite_token
 from app.services.scenario_projects import ensure_session_file_snapshots
@@ -66,7 +70,10 @@ def _get_invite_by_token(db: Session, raw_token: str) -> InviteToken:
     invite = db.execute(
         select(InviteToken)
         .options(
-            selectinload(InviteToken.interview).selectinload(Interview.scenario),
+            selectinload(InviteToken.interview)
+            .selectinload(Interview.scenario)
+            .selectinload(Scenario.project)
+            .selectinload(ScenarioProject.files),
             selectinload(InviteToken.session),
         )
         .where(InviteToken.token_hash == hash_invite_token(raw_token))
@@ -116,12 +123,55 @@ def _session_response(session: InterviewSession) -> InterviewSessionRead:
         created_at=session.created_at,
         updated_at=session.updated_at,
         interview=CandidateSessionInterviewRead.model_validate(interview),
-        scenario=CandidateScenarioRead.model_validate(interview.scenario),
+        scenario=_candidate_scenario_response(interview.scenario),
         submission=SubmissionRead.model_validate(session.submission) if session.submission else None,
         ai_messages=[
             AIMessageRead.model_validate(message)
             for message in sorted(session.ai_messages, key=lambda message: message.created_at)
         ],
+    )
+
+
+def _candidate_scenario_response(scenario: Scenario | None) -> CandidateScenarioRead:
+    if scenario is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Interview scenario has not been generated yet.",
+        )
+
+    project = None
+    if scenario.project is not None:
+        visible_files = [
+            CandidateProjectFileRead.model_validate(project_file)
+            for project_file in sorted(scenario.project.files, key=lambda project_file: project_file.path)
+            if not project_file.is_hidden
+        ]
+        project = CandidateScenarioProjectRead(
+            project_name=scenario.project.project_name,
+            stack=scenario.project.stack,
+            framework=scenario.project.framework,
+            package_manager=scenario.project.package_manager,
+            install_command=scenario.project.install_command,
+            run_command=scenario.project.run_command,
+            test_command=scenario.project.test_command,
+            entrypoint=scenario.project.entrypoint,
+            files=visible_files,
+        )
+
+    return CandidateScenarioRead(
+        id=scenario.id,
+        title=scenario.title,
+        business_context=scenario.business_context,
+        technical_requirements=scenario.technical_requirements,
+        starter_code=scenario.starter_code,
+        expected_behavior=scenario.expected_behavior,
+        logs_or_bug_report=scenario.logs_or_bug_report,
+        bug_description=scenario.bug_description,
+        feature_request=scenario.feature_request,
+        validation_instructions=scenario.validation_instructions,
+        candidate_task_summary=scenario.candidate_task_summary,
+        candidate_instructions=scenario.candidate_instructions,
+        project=project,
     )
 
 
@@ -137,7 +187,10 @@ def _get_candidate_session_for_user(db: Session, *, session_id: UUID, current_us
     session = db.execute(
         select(InterviewSession)
         .options(
-            selectinload(InterviewSession.interview).selectinload(Interview.scenario),
+            selectinload(InterviewSession.interview)
+            .selectinload(Interview.scenario)
+            .selectinload(Scenario.project)
+            .selectinload(ScenarioProject.files),
             selectinload(InterviewSession.submission),
             selectinload(InterviewSession.ai_messages),
         )
@@ -181,7 +234,9 @@ def _create_event(
 def _submitted_files_from_session_snapshots(db: Session, *, session: InterviewSession) -> list[dict[str, object]]:
     snapshots = db.execute(
         select(SessionFileSnapshot)
+        .join(ProjectFile, SessionFileSnapshot.project_file_id == ProjectFile.id)
         .where(SessionFileSnapshot.session_id == session.id)
+        .where(ProjectFile.is_hidden.is_(False))
         .order_by(SessionFileSnapshot.path.asc())
     ).scalars()
     return [
