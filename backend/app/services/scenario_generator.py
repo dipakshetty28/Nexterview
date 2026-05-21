@@ -43,8 +43,9 @@ class ScenarioGenerator:
                             "You generate production-grade engineering interview scenarios. "
                             "Return a realistic task, not a toy puzzle. Include broken or incomplete "
                             "starter code, concrete requirements, logs when useful, interviewer-only "
-                            "evaluation points, and a rubric. Do not include secrets, API keys, or "
-                            "instructions to expose backend credentials."
+                            "evaluation points, a hidden rubric, and an optional multi-file runnable "
+                            "project with source, config, test, data, docs, and hidden_test files. "
+                            "Do not include secrets, API keys, or instructions to expose backend credentials."
                         ),
                     },
                     {
@@ -100,6 +101,7 @@ def build_fallback_scenario(interview: Interview) -> GeneratedScenario:
     ]
 
     if "front" in interview_type or "react" in stack.lower() or "next" in stack.lower():
+        project_kind = "frontend"
         title = "Fix a server/client rendering mismatch in the candidate dashboard"
         business_context = (
             "The hiring operations team is piloting a new candidate dashboard, but production users see "
@@ -130,7 +132,12 @@ export default function CandidateDashboard() {
             "Add a regression test or written verification path for server render and client hydration.",
             f"Use the selected stack thoughtfully: {stack}.",
         ]
+        bug_description = "Browser-only APIs are read during server rendering, causing hydration mismatch failures."
+        feature_request = "Preserve candidate dashboard session details while adding a stable loading state."
+        validation_instructions = "Run the component tests and verify the page renders without accessing window on the server."
+        candidate_task_summary = "Fix the candidate dashboard hydration bug and document how you verified it."
     elif "ai" in interview_type or "rag" in stack.lower() or "lang" in stack.lower():
+        project_kind = "ai"
         title = "Improve a RAG answer pipeline that cites the wrong policy"
         business_context = (
             "Customer support agents use an internal AI assistant to answer candidate accommodation questions. "
@@ -152,7 +159,12 @@ export default function CandidateDashboard() {
             "Describe how you would evaluate answer quality and citation correctness.",
             f"Keep the solution appropriate for a {interview.duration_minutes}-minute {interview.difficulty} exercise.",
         ]
+        bug_description = "Retrieved chunks lose document version metadata, so stale policies can outrank current policies."
+        feature_request = "Return answers with trustworthy citations and explicit stale-policy safeguards."
+        validation_instructions = "Run the retrieval tests against the seeded policy data and explain citation tradeoffs."
+        candidate_task_summary = "Repair the RAG citation pipeline so it ranks current policy chunks correctly."
     elif "performance" in interview_type or "api" in interview_type:
+        project_kind = "api"
         title = "Remove an N+1 query from interview session search"
         business_context = (
             "Interview coordinators search completed sessions before calibration meetings. The endpoint is fast "
@@ -180,7 +192,12 @@ def list_sessions(db: Session = Depends(get_db)):
             "Return stable ordering and documented response fields.",
             "Explain indexing and test coverage for the slow path.",
         ]
+        bug_description = "The session search endpoint performs candidate and review lookups inside the response loop."
+        feature_request = "Add paginated, organization-scoped search metadata suitable for calibration meetings."
+        validation_instructions = "Run the API tests and inspect query-count expectations for the large-organization fixture."
+        candidate_task_summary = "Fix the session search N+1 pattern and keep the response contract documented."
     else:
+        project_kind = "billing"
         title = "Debug duplicate payment retries in an interview billing service"
         business_context = (
             "The finance team found duplicate charges when a payment provider returns transient 502 responses. "
@@ -209,6 +226,10 @@ def list_sessions(db: Session = Depends(get_db)):
             "Add tests proving duplicate charges are not created across retry attempts.",
             f"Frame the solution for a {interview.seniority} {interview.role_title} using {stack}.",
         ]
+        bug_description = "A new idempotency key is generated inside every retry attempt, allowing duplicate charges."
+        feature_request = "Add deterministic retry behavior that keeps provider calls safe during transient failures."
+        validation_instructions = "Run the payment retry tests and explain why duplicate provider calls no longer charge twice."
+        candidate_task_summary = "Make billing retries idempotent and verify the duplicate-charge regression."
 
     expected_behavior = [
         "The candidate can explain the root cause before changing code.",
@@ -229,10 +250,23 @@ def list_sessions(db: Session = Depends(get_db)):
         "AI usage: prompts include context, constraints, and verification rather than asking for final code only.",
         "Communication: the candidate explains the tradeoffs and production rollout risk.",
     ]
+    hidden_rubric = [
+        "Strong submissions change the smallest relevant files and keep public behavior compatible.",
+        "Look for evidence that the candidate used tests or validation instructions before final submission.",
+        "Review whether AI output was inspected and adapted rather than pasted wholesale.",
+        "Call out hidden-test risks when the fix handles only the exact happy path.",
+    ]
     instructions = (
         "You may use the AI assistant during the exercise. Treat it as a collaborator: provide context, ask it "
         "to compare options, and validate anything you use. Submit the code change, verification notes, and a "
         "brief explanation of the root cause and tradeoffs."
+    )
+    project = _build_fallback_project(
+        interview=interview,
+        kind=project_kind,
+        starter_code=starter_code,
+        title=title,
+        logs=logs,
     )
 
     return GeneratedScenario.model_validate(
@@ -243,8 +277,269 @@ def list_sessions(db: Session = Depends(get_db)):
             "starter_code": starter_code,
             "expected_behavior": expected_behavior,
             "logs_or_bug_report": logs,
+            "bug_description": bug_description,
+            "feature_request": feature_request,
+            "validation_instructions": validation_instructions,
+            "candidate_task_summary": candidate_task_summary,
             "hidden_evaluation_points": hidden_points,
+            "hidden_rubric": hidden_rubric,
             "candidate_instructions": instructions,
             "interviewer_rubric": rubric,
+            "project": project,
         }
+    )
+
+
+def _build_fallback_project(
+    *,
+    interview: Interview,
+    kind: str,
+    starter_code: str,
+    title: str,
+    logs: str,
+) -> dict[str, object]:
+    if kind == "frontend":
+        return _frontend_project(interview=interview, starter_code=starter_code, title=title, logs=logs)
+    if kind == "ai":
+        return _python_project(
+            interview=interview,
+            project_name="rag-policy-citation-service",
+            framework="Python",
+            entrypoint="app/rag_pipeline.py",
+            source_path="app/rag_pipeline.py",
+            starter_code=starter_code,
+            title=title,
+            logs=logs,
+            fixture_name="policy_chunks.json",
+            public_test_name="tests/test_policy_citations.py",
+            hidden_test_name="tests/test_stale_policy_ranking.py",
+        )
+    if kind == "api":
+        return _python_project(
+            interview=interview,
+            project_name="session-search-api",
+            framework="FastAPI",
+            entrypoint="app/main.py",
+            source_path="app/main.py",
+            starter_code=starter_code,
+            title=title,
+            logs=logs,
+            fixture_name="sessions.json",
+            public_test_name="tests/test_session_search.py",
+            hidden_test_name="tests/test_query_shape.py",
+        )
+    return _python_project(
+        interview=interview,
+        project_name="billing-retry-service",
+        framework="Python",
+        entrypoint="app/billing.py",
+        source_path="app/billing.py",
+        starter_code=starter_code,
+        title=title,
+        logs=logs,
+        fixture_name="payments.json",
+        public_test_name="tests/test_billing_retries.py",
+        hidden_test_name="tests/test_provider_idempotency.py",
+    )
+
+
+def _python_project(
+    *,
+    interview: Interview,
+    project_name: str,
+    framework: str,
+    entrypoint: str,
+    source_path: str,
+    starter_code: str,
+    title: str,
+    logs: str,
+    fixture_name: str,
+    public_test_name: str,
+    hidden_test_name: str,
+) -> dict[str, object]:
+    return {
+        "stack": interview.stack,
+        "project_name": project_name,
+        "description": f"Runnable repo-style exercise for: {title}",
+        "install_command": "pip install -r requirements.txt",
+        "run_command": f"python {entrypoint}",
+        "test_command": "pytest",
+        "entrypoint": entrypoint,
+        "package_manager": "pip",
+        "framework": framework,
+        "files": [
+            {
+                "path": "requirements.txt",
+                "content": "pytest==8.2.2\n",
+                "language": "text",
+                "file_type": "config",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+            {
+                "path": source_path,
+                "content": starter_code,
+                "language": "python",
+                "file_type": "source",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+            {
+                "path": f"data/{fixture_name}",
+                "content": _fixture_json(kind=project_name),
+                "language": "json",
+                "file_type": "data",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+            {
+                "path": public_test_name,
+                "content": _public_pytest(source_path=source_path),
+                "language": "python",
+                "file_type": "test",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+            {
+                "path": hidden_test_name,
+                "content": _hidden_pytest(source_path=source_path),
+                "language": "python",
+                "file_type": "hidden_test",
+                "is_editable": False,
+                "is_hidden": True,
+            },
+            {
+                "path": "README.md",
+                "content": _project_readme(title=title, logs=logs, test_command="pytest"),
+                "language": "markdown",
+                "file_type": "docs",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+        ],
+    }
+
+
+def _frontend_project(*, interview: Interview, starter_code: str, title: str, logs: str) -> dict[str, object]:
+    return {
+        "stack": interview.stack,
+        "project_name": "candidate-dashboard-hydration",
+        "description": f"Next.js repo-style exercise for: {title}",
+        "install_command": "npm install",
+        "run_command": "npm run dev",
+        "test_command": "npm test",
+        "entrypoint": "app/candidate-dashboard/page.tsx",
+        "package_manager": "npm",
+        "framework": "Next.js",
+        "files": [
+            {
+                "path": "package.json",
+                "content": (
+                    '{"scripts":{"dev":"next dev","test":"vitest run"},"dependencies":{"next":"15.0.0",'
+                    '"react":"19.0.0","react-dom":"19.0.0"},"devDependencies":{"vitest":"2.0.0"}}\n'
+                ),
+                "language": "json",
+                "file_type": "config",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+            {
+                "path": "app/candidate-dashboard/page.tsx",
+                "content": starter_code,
+                "language": "typescript",
+                "file_type": "source",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+            {
+                "path": "data/session.json",
+                "content": '{\n  "candidateName": "Sam Rivera",\n  "scoreWidgetEnabled": true\n}\n',
+                "language": "json",
+                "file_type": "data",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+            {
+                "path": "tests/candidate-dashboard.test.tsx",
+                "content": (
+                    'import { describe, expect, it } from "vitest";\n\n'
+                    'describe("candidate dashboard", () => {\n'
+                    '  it("does not read browser APIs during server render", () => {\n'
+                    '    expect(true).toBe(true);\n'
+                    "  });\n"
+                    "});\n"
+                ),
+                "language": "typescript",
+                "file_type": "test",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+            {
+                "path": "tests/hydration-regression.hidden.test.tsx",
+                "content": (
+                    'import { describe, expect, it } from "vitest";\n\n'
+                    'describe("hidden hydration regression", () => {\n'
+                    '  it("keeps first render deterministic", () => {\n'
+                    '    expect("server").toBe("server");\n'
+                    "  });\n"
+                    "});\n"
+                ),
+                "language": "typescript",
+                "file_type": "hidden_test",
+                "is_editable": False,
+                "is_hidden": True,
+            },
+            {
+                "path": "README.md",
+                "content": _project_readme(title=title, logs=logs, test_command="npm test"),
+                "language": "markdown",
+                "file_type": "docs",
+                "is_editable": True,
+                "is_hidden": False,
+            },
+        ],
+    }
+
+
+def _fixture_json(*, kind: str) -> str:
+    return json.dumps(
+        {
+            "project": kind,
+            "records": [
+                {"id": "evt_123", "status": "retry"},
+                {"id": "evt_456", "status": "success"},
+            ],
+        },
+        indent=2,
+    ) + "\n"
+
+
+def _public_pytest(*, source_path: str) -> str:
+    return (
+        "from pathlib import Path\n\n\n"
+        "def test_candidate_keeps_exercise_file_non_empty():\n"
+        f"    source = Path({source_path!r})\n"
+        "    assert source.exists()\n"
+        "    assert source.read_text().strip()\n"
+    )
+
+
+def _hidden_pytest(*, source_path: str) -> str:
+    return (
+        "from pathlib import Path\n\n\n"
+        "def test_hidden_regression_mentions_failure_mode():\n"
+        f"    text = Path({source_path!r}).read_text().lower()\n"
+        '    assert any(term in text for term in ["idempot", "metadata", "pagination", "window"])\n'
+    )
+
+
+def _project_readme(*, title: str, logs: str, test_command: str) -> str:
+    return (
+        f"# {title}\n\n"
+        "This is a repo-style interview exercise. Make the smallest production-minded change that satisfies the "
+        "requirements, then document your verification notes.\n\n"
+        "## Bug Report\n\n"
+        f"{logs}\n\n"
+        "## Validation\n\n"
+        f"Run `{test_command}` and explain any remaining risk in your final notes.\n"
     )

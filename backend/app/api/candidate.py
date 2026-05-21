@@ -18,6 +18,7 @@ from app.models.interview import (
     InterviewSession,
     InterviewSessionStatus,
     InviteToken,
+    SessionFileSnapshot,
     Submission,
     TelemetryEvent,
     TelemetryEventType,
@@ -42,6 +43,7 @@ from app.schemas.invite import (
 )
 from app.services.copilot import CandidateCopilot
 from app.services.invites import hash_invite_token
+from app.services.scenario_projects import ensure_session_file_snapshots
 
 router = APIRouter(prefix="/api", tags=["candidate"])
 
@@ -176,6 +178,22 @@ def _create_event(
     return event
 
 
+def _submitted_files_from_session_snapshots(db: Session, *, session: InterviewSession) -> list[dict[str, object]]:
+    snapshots = db.execute(
+        select(SessionFileSnapshot)
+        .where(SessionFileSnapshot.session_id == session.id)
+        .order_by(SessionFileSnapshot.path.asc())
+    ).scalars()
+    return [
+        {
+            "path": snapshot.path,
+            "content": snapshot.current_content,
+            "language": snapshot.language,
+        }
+        for snapshot in snapshots
+    ]
+
+
 def _payload_string(payload: dict[str, object], key: str, *, max_length: int) -> str:
     value = payload.get(key)
     if not isinstance(value, str):
@@ -295,6 +313,7 @@ def start_session_from_invite(
         invite.session.latest_code = invite.session.latest_code or invite.interview.scenario.starter_code
         invite.session.last_autosaved_at = invite.session.last_autosaved_at or _now_utc()
         invite.used_at = invite.used_at or _now_utc()
+    ensure_session_file_snapshots(db, session=invite.session)
 
     try:
         db.commit()
@@ -336,6 +355,7 @@ def save_session_event(
             session.started_at = now
         session.latest_code = session.latest_code or session.interview.scenario.starter_code
         session.last_autosaved_at = session.last_autosaved_at or now
+        ensure_session_file_snapshots(db, session=session)
         event_payload = {"status": session.status.value}
     elif payload.event_type == TelemetryEventType.CODE_EDIT:
         _ensure_session_accepts_work(session)
@@ -419,6 +439,11 @@ def submit_session_solution(
         code=payload.code,
         notes=payload.notes,
         test_output=payload.test_output,
+        submitted_files=(
+            [submitted_file.model_dump() for submitted_file in payload.submitted_files]
+            or _submitted_files_from_session_snapshots(db, session=session)
+        ),
+        push_status="not_configured",
         submitted_at=now,
     )
     db.add(submission)

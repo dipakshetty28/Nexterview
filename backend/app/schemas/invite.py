@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.interview import AIMessageRole, InterviewSessionStatus, TelemetryEventType
+from app.schemas.project import SubmittedFileRead
 
 
 class InviteCreateRequest(BaseModel):
@@ -51,6 +52,10 @@ class CandidateScenarioRead(BaseModel):
     starter_code: str
     expected_behavior: list[str]
     logs_or_bug_report: str
+    bug_description: str
+    feature_request: str
+    validation_instructions: str
+    candidate_task_summary: str
     candidate_instructions: str
 
     model_config = ConfigDict(from_attributes=True)
@@ -76,6 +81,13 @@ class SubmissionRead(BaseModel):
     code: str
     notes: str
     test_output: str | None
+    submitted_files: list[dict[str, Any]]
+    branch_name: str | None
+    commit_sha: str | None
+    repository_url: str | None
+    pull_request_url: str | None
+    push_status: str | None
+    push_error: str | None
     submitted_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -154,6 +166,7 @@ class SubmissionCreate(BaseModel):
     code: str = Field(min_length=1)
     notes: str = Field(default="", max_length=10000)
     test_output: str | None = Field(default=None, max_length=20000)
+    submitted_files: list[SubmittedFileRead] = Field(default_factory=list, max_length=120)
 
 
 class AICopilotRequest(BaseModel):
