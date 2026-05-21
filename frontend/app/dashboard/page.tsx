@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { ProtectedRoute } from "@/components/auth/protected-route";
@@ -83,6 +84,24 @@ function DashboardContent() {
               ))}
             </div>
           </section>
+          {user?.role === "ADMIN" || user?.role === "INTERVIEWER" ? (
+            <section className="rounded-md border border-slate-800 bg-slate-900/60 p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold">Interview management</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    Create interview configs and generate stored AI scenarios.
+                  </p>
+                </div>
+                <Link
+                  className="inline-flex h-11 w-fit items-center justify-center rounded-md bg-cyan-400 px-4 text-sm font-medium text-slate-950 transition hover:bg-cyan-300"
+                  href="/interviews"
+                >
+                  Open interviews
+                </Link>
+              </div>
+            </section>
+          ) : null}
         </div>
       </section>
     </main>
