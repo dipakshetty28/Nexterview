@@ -2,6 +2,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+<<<<<<< ours
+<<<<<<< ours
     app_name: str = "AI Engineering Interview Platform API"
     environment: str = "development"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/nexterview"
@@ -14,6 +16,17 @@ class Settings(BaseSettings):
     bcrypt_rounds: int = 12
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+=======
+=======
+>>>>>>> theirs
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4.1-mini"
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 
 settings = Settings()

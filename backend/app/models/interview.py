@@ -1,3 +1,5 @@
+<<<<<<< ours
+<<<<<<< ours
 from __future__ import annotations
 
 import enum
@@ -170,3 +172,24 @@ class InterviewSession(TimestampMixin, Base):
         back_populates="interview_sessions",
         foreign_keys=[candidate_user_id],
     )
+=======
+=======
+>>>>>>> theirs
+from dataclasses import dataclass
+
+
+@dataclass
+class Interview:
+    id: int
+    organization_id: int
+    interviewer_id: int
+    role_title: str
+    stack: str
+    difficulty: str
+    interview_type: str
+    duration_minutes: int
+    evaluation_criteria: str
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs

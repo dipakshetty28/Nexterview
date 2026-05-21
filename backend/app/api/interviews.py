@@ -1,3 +1,5 @@
+<<<<<<< ours
+<<<<<<< ours
 from __future__ import annotations
 
 from typing import Annotated
@@ -184,3 +186,69 @@ def delete_interview(
     db.delete(interview)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+=======
+=======
+>>>>>>> theirs
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.models.interview import Interview
+from app.models.scenario import Scenario
+from app.schemas.scenario import ScenarioResponse
+from app.services.openai_service import ScenarioGenerationService
+
+router = APIRouter(prefix="/api/interviews", tags=["interviews"])
+
+# In-memory placeholders for current step implementation
+INTERVIEWS = {
+    1: Interview(
+        id=1,
+        organization_id=10,
+        interviewer_id=100,
+        role_title="Backend Engineer",
+        stack="Python + FastAPI + PostgreSQL",
+        difficulty="Senior",
+        interview_type="Backend debugging",
+        duration_minutes=90,
+        evaluation_criteria="Debugging depth, correctness, test quality",
+    )
+}
+SCENARIOS: dict[int, Scenario] = {}
+
+
+def get_current_user() -> dict:
+    return {"id": 100, "role": "INTERVIEWER", "organization_id": 10}
+
+
+def get_scenario_service() -> ScenarioGenerationService:
+    return ScenarioGenerationService()
+
+
+@router.post("/{id}/generate-scenario", response_model=ScenarioResponse)
+def generate_scenario(
+    id: int,
+    user: dict = Depends(get_current_user),
+    scenario_service: ScenarioGenerationService = Depends(get_scenario_service),
+) -> ScenarioResponse:
+    if user["role"] != "INTERVIEWER":
+        raise HTTPException(status_code=403, detail="Only interviewers can generate scenarios")
+
+    interview = INTERVIEWS.get(id)
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+
+    if interview.organization_id != user["organization_id"]:
+        raise HTTPException(status_code=403, detail="Interview is outside your organization")
+
+    generated = scenario_service.generate_scenario(interview)
+
+    scenario = Scenario(
+        id=len(SCENARIOS) + 1,
+        interview_id=interview.id,
+        **generated.model_dump(),
+    )
+    SCENARIOS[interview.id] = scenario
+    return ScenarioResponse(id=scenario.id, interview_id=scenario.interview_id, **generated.model_dump())
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs

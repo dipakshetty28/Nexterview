@@ -1,5 +1,7 @@
 # Nexterview
 
+<<<<<<< ours
+<<<<<<< ours
 Nexterview is the foundation for an AI-native engineering interview platform. It now includes authenticated organization access plus interviewer interview management for manually authored scenarios.
 
 ## Current Scope
@@ -268,3 +270,21 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
 Provision PostgreSQL with Render Postgres or Neon and set `DATABASE_URL`. Provision Redis with Render Redis or Upstash and set `REDIS_URL`. Set `JWT_SECRET` to a long random value in the deployment environment.
+=======
+=======
+>>>>>>> theirs
+## Environment
+
+Set the following variables:
+
+- `OPENAI_API_KEY` (optional; if omitted, backend uses deterministic fallback scenario)
+- `OPENAI_MODEL` (default: `gpt-4.1-mini`)
+
+## Scenario generation
+
+Use `POST /api/interviews/{id}/generate-scenario` to generate and persist an AI scenario for an interview.
+The endpoint requires an authenticated interviewer in the same organization as the interview.
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
