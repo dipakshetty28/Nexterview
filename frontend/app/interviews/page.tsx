@@ -7,7 +7,7 @@ import { ProtectedRoute } from "@/components/auth/protected-route";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApiError, createInterview, generateScenario, getInterviews } from "@/lib/api";
+import { ApiError, createCandidateInvite, createInterview, generateScenario, getInterviews } from "@/lib/api";
 import type { Interview, InterviewCreateInput } from "@/lib/types";
 
 const DEFAULT_CRITERIA = [
@@ -73,6 +73,9 @@ function InterviewsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [inviteEmails, setInviteEmails] = useState<Record<string, string>>({});
+  const [inviteGeneratingId, setInviteGeneratingId] = useState<string | null>(null);
+  const [inviteLinks, setInviteLinks] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   const canManageInterviews = user?.role === "ADMIN" || user?.role === "INTERVIEWER";
@@ -99,6 +102,10 @@ function InterviewsContent() {
 
   function updateField(field: keyof InterviewFormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateInviteEmail(interviewId: string, value: string) {
+    setInviteEmails((current) => ({ ...current, [interviewId]: value }));
   }
 
   async function handleCreateInterview(event: FormEvent<HTMLFormElement>) {
@@ -139,6 +146,30 @@ function InterviewsContent() {
       setError(message);
     } finally {
       setGeneratingId(null);
+    }
+  }
+
+  async function handleCreateInvite(interviewId: string) {
+    if (!token) {
+      return;
+    }
+
+    const candidateEmail = inviteEmails[interviewId]?.trim();
+    if (!candidateEmail) {
+      setError("Enter a candidate email before generating an invite.");
+      return;
+    }
+
+    setError(null);
+    setInviteGeneratingId(interviewId);
+    try {
+      const invite = await createCandidateInvite(token, interviewId, { candidate_email: candidateEmail });
+      setInviteLinks((current) => ({ ...current, [interviewId]: invite.invite_url }));
+    } catch (requestError: unknown) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to create invite.";
+      setError(message);
+    } finally {
+      setInviteGeneratingId(null);
     }
   }
 
@@ -289,6 +320,38 @@ function InterviewsContent() {
                 >
                   {generatingId === interview.id ? "Generating..." : interview.scenario ? "Regenerate scenario" : "Generate scenario"}
                 </Button>
+              </div>
+
+              <div className="mt-5 grid gap-3 border-t border-slate-800 pt-5">
+                <label className="grid gap-2 text-sm text-slate-200" htmlFor={`invite-${interview.id}`}>
+                  <span>Candidate invite email</span>
+                  <input
+                    className="h-11 rounded-md border border-slate-700 bg-slate-950 px-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+                    id={`invite-${interview.id}`}
+                    onChange={(event) => updateInviteEmail(interview.id, event.target.value)}
+                    placeholder="candidate@nexterview.dev"
+                    type="email"
+                    value={inviteEmails[interview.id] ?? ""}
+                  />
+                </label>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <Button
+                    disabled={inviteGeneratingId === interview.id}
+                    onClick={() => void handleCreateInvite(interview.id)}
+                    type="button"
+                    variant="secondary"
+                  >
+                    {inviteGeneratingId === interview.id ? "Generating invite..." : "Generate invite link"}
+                  </Button>
+                  {inviteLinks[interview.id] ? (
+                    <a
+                      className="break-all text-sm font-medium text-cyan-300 hover:text-cyan-200"
+                      href={inviteLinks[interview.id]}
+                    >
+                      {inviteLinks[interview.id]}
+                    </a>
+                  ) : null}
+                </div>
               </div>
 
               {interview.scenario ? (

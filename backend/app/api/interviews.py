@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -9,11 +10,15 @@ from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_roles
+from app.core.config import settings
 from app.db.session import get_db
-from app.models.interview import Interview, Scenario
+from app.models.interview import Interview, InterviewSession, InterviewSessionStatus, InviteToken, Scenario
+from app.models.organization import OrganizationMember
 from app.models.user import User, UserRole
+from app.schemas.invite import InviteCreateRequest, InviteTokenRead
 from app.schemas.interview import InterviewCreateRequest, InterviewRead
 from app.schemas.scenario import ScenarioRead
+from app.services.invites import generate_invite_token, hash_invite_token
 from app.services.scenario_generator import ScenarioGenerationResult, ScenarioGenerator
 
 router = APIRouter(prefix="/api/interviews", tags=["interviews"])
@@ -70,6 +75,60 @@ def _raise_schema_not_ready(exc: ProgrammingError) -> None:
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="Interview database tables are not available. Run Alembic migrations with `alembic upgrade head`.",
     ) from exc
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _invite_url(raw_token: str) -> str:
+    return f"{settings.frontend_url.rstrip('/')}/invite/{raw_token}"
+
+
+def _get_candidate_for_invite(db: Session, *, organization_id: UUID, candidate_email: str) -> User:
+    candidate = db.execute(
+        select(User)
+        .join(OrganizationMember)
+        .where(
+            User.email == candidate_email,
+            User.role == UserRole.CANDIDATE,
+            User.is_active.is_(True),
+            OrganizationMember.organization_id == organization_id,
+            OrganizationMember.role == UserRole.CANDIDATE,
+        )
+    ).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active candidate account with that email exists in this organization.",
+        )
+    return candidate
+
+
+def _get_or_create_invited_session(db: Session, *, interview: Interview, candidate: User) -> InterviewSession:
+    session = db.execute(
+        select(InterviewSession).where(
+            InterviewSession.interview_id == interview.id,
+            InterviewSession.candidate_id == candidate.id,
+        )
+    ).scalar_one_or_none()
+    if session is None:
+        session = InterviewSession(
+            organization_id=interview.organization_id,
+            interview_id=interview.id,
+            candidate_id=candidate.id,
+            status=InterviewSessionStatus.INVITED,
+        )
+        db.add(session)
+        db.flush()
+        return session
+
+    if session.status in {InterviewSessionStatus.SUBMITTED, InterviewSessionStatus.REVIEWED}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This candidate already has a submitted or reviewed session for the interview.",
+        )
+    return session
 
 
 @router.post("", response_model=InterviewRead, status_code=status.HTTP_201_CREATED)
@@ -139,6 +198,54 @@ def get_interview(
     db: Annotated[Session, Depends(get_db)],
 ) -> InterviewRead:
     return InterviewRead.model_validate(_get_interview_for_user(db, interview_id, current_user))
+
+
+@router.post("/{interview_id}/invite", response_model=InviteTokenRead, status_code=status.HTTP_201_CREATED)
+def create_candidate_invite(
+    interview_id: UUID,
+    payload: InviteCreateRequest,
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+) -> InviteTokenRead:
+    interview = _get_interview_for_user(db, interview_id, current_user)
+    candidate_email = _normalize_email(payload.candidate_email)
+    candidate = _get_candidate_for_invite(db, organization_id=interview.organization_id, candidate_email=candidate_email)
+    session = _get_or_create_invited_session(db, interview=interview, candidate=candidate)
+    raw_token = generate_invite_token()
+    invite = InviteToken(
+        organization_id=interview.organization_id,
+        interview_id=interview.id,
+        session_id=session.id,
+        candidate_id=candidate.id,
+        created_by_id=current_user.id,
+        token_hash=hash_invite_token(raw_token),
+        candidate_email=candidate_email,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days),
+    )
+    db.add(invite)
+
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create invite.",
+        ) from exc
+
+    db.refresh(invite)
+    return InviteTokenRead(
+        id=invite.id,
+        interview_id=invite.interview_id,
+        session_id=invite.session_id,
+        candidate_email=invite.candidate_email,
+        invite_url=_invite_url(raw_token),
+        expires_at=invite.expires_at,
+        used_at=invite.used_at,
+    )
 
 
 @router.post("/{interview_id}/generate-scenario", response_model=ScenarioRead)

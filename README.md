@@ -1,6 +1,6 @@
 # Nexterview
 
-Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, and backend-only AI scenario generation.
+Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation, and candidate invite/session access.
 
 ## Current Scope
 
@@ -19,13 +19,18 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `POST /api/interviews`
   - `GET /api/interviews`
   - `GET /api/interviews/{id}`
+  - `POST /api/interviews/{id}/invite`
   - `POST /api/interviews/{id}/generate-scenario`
+- Candidate invite/session endpoints:
+  - `GET /api/invite/{token}`
+  - `POST /api/invite/{token}/start`
+  - `GET /api/sessions/{id}`
 - Users, organizations, and organization memberships
-- Interviews and stored generated scenarios
+- Interviews, invite tokens, interview sessions, and stored generated scenarios
 - OpenAI Responses API integration on the backend with Pydantic structured output validation
 - Graceful deterministic scenario fallback when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, and interviewer management route
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and candidate session page
 - Seed script with demo users and a sample generated interview scenario
 
 ## Architecture
@@ -160,6 +165,13 @@ Accounts:
 - `interviewer@nexterview.dev` with `INTERVIEWER`
 - `candidate@nexterview.dev` with `CANDIDATE`
 
+Demo invite flow:
+
+1. Log in as `admin@nexterview.dev` or `interviewer@nexterview.dev`.
+2. Open `/interviews`, enter `candidate@nexterview.dev`, and generate an invite link.
+3. Open the invite link, log in as `candidate@nexterview.dev`, and start the interview.
+4. The candidate lands on `/sessions/{id}` with the generated task details. The editor is intentionally not implemented yet.
+
 ## API Contracts
 
 Register an organization owner:
@@ -241,6 +253,43 @@ The response includes:
 
 The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. If the OpenAI key is absent or the provider call fails, the backend returns and stores a realistic deterministic fallback scenario with `generation_source` set to `fallback`.
 
+Generate a candidate invite link:
+
+```http
+POST /api/interviews/{id}/invite
+Authorization: Bearer <interviewer_access_token>
+Content-Type: application/json
+
+{
+  "candidate_email": "candidate@example.com",
+  "expires_in_days": 14
+}
+```
+
+The candidate must already have an active `CANDIDATE` account in the interview organization. The response includes `invite_url`, `session_id`, and expiration metadata.
+
+Open an invite:
+
+```http
+GET /api/invite/{token}
+```
+
+Start a session from an invite:
+
+```http
+POST /api/invite/{token}/start
+Authorization: Bearer <candidate_access_token>
+```
+
+Read a candidate session:
+
+```http
+GET /api/sessions/{id}
+Authorization: Bearer <candidate_access_token>
+```
+
+Candidate session statuses are `invited`, `started`, `submitted`, and `reviewed`. Candidates can only read sessions where they are the session owner.
+
 ## Verification
 
 Backend syntax check:
@@ -301,6 +350,15 @@ Interview scenario smoke test:
 ```bash
 curl -X POST http://localhost:8000/api/interviews/<interview_id>/generate-scenario \
   -H "Authorization: Bearer <access_token>"
+```
+
+Candidate invite smoke test:
+
+```bash
+curl -X POST http://localhost:8000/api/interviews/<interview_id>/invite \
+  -H "Authorization: Bearer <interviewer_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"candidate_email":"candidate@nexterview.dev"}'
 ```
 
 ## Deployment Notes

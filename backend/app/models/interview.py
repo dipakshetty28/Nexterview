@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import enum
 import uuid
+from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+
+
+class InterviewSessionStatus(str, enum.Enum):
+    INVITED = "invited"
+    STARTED = "started"
+    SUBMITTED = "submitted"
+    REVIEWED = "reviewed"
 
 
 class Interview(TimestampMixin, Base):
@@ -41,6 +50,16 @@ class Interview(TimestampMixin, Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    sessions: Mapped[list[InterviewSession]] = relationship(
+        "InterviewSession",
+        back_populates="interview",
+        cascade="all, delete-orphan",
+    )
+    invite_tokens: Mapped[list[InviteToken]] = relationship(
+        "InviteToken",
+        back_populates="interview",
+        cascade="all, delete-orphan",
+    )
 
 
 class Scenario(TimestampMixin, Base):
@@ -67,3 +86,89 @@ class Scenario(TimestampMixin, Base):
     ai_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     interview: Mapped[Interview] = relationship("Interview", back_populates="scenario")
+
+
+class InterviewSession(TimestampMixin, Base):
+    __tablename__ = "interview_sessions"
+    __table_args__ = (
+        UniqueConstraint("interview_id", "candidate_id", name="uq_interview_sessions_interview_candidate"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    interview_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interviews.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[InterviewSessionStatus] = mapped_column(
+        Enum(
+            InterviewSessionStatus,
+            name="interview_session_status",
+            values_callable=lambda statuses: [status.value for status in statuses],
+        ),
+        nullable=False,
+        default=InterviewSessionStatus.INVITED,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    interview: Mapped[Interview] = relationship("Interview", back_populates="sessions")
+    invite_tokens: Mapped[list[InviteToken]] = relationship("InviteToken", back_populates="session")
+
+
+class InviteToken(TimestampMixin, Base):
+    __tablename__ = "invite_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    interview_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interviews.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    candidate_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    interview: Mapped[Interview] = relationship("Interview", back_populates="invite_tokens")
+    session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="invite_tokens")
