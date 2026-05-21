@@ -326,6 +326,8 @@ function CandidateSessionContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [testRun, setTestRun] = useState<TestRunResult | null>(null);
+  const [testRunError, setTestRunError] = useState<string | null>(null);
+  const [testRunStartedAt, setTestRunStartedAt] = useState<string | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [copilotMessages, setCopilotMessages] = useState<AIMessage[]>([]);
   const [copilotQuestion, setCopilotQuestion] = useState("");
@@ -569,6 +571,8 @@ function CandidateSessionContent() {
 
     setIsRunningTests(true);
     setError(null);
+    setTestRunError(null);
+    setTestRunStartedAt(new Date().toISOString());
     try {
       if (hasWorkspace) {
         await flushPendingWorkspaceSaves();
@@ -578,7 +582,7 @@ function CandidateSessionContent() {
       setLastSavedAt(new Date().toISOString());
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to run simulated tests.";
-      setError(message);
+      setTestRunError(message);
     } finally {
       setIsRunningTests(false);
     }
@@ -755,7 +759,7 @@ function CandidateSessionContent() {
               </div>
             </aside>
 
-            <section className="grid min-h-[760px] grid-rows-[auto_minmax(420px,1fr)_minmax(220px,auto)] overflow-hidden rounded-md border border-slate-800 bg-slate-900/70 xl:min-h-0">
+            <section className="grid min-h-[760px] grid-rows-[auto_minmax(360px,1fr)_minmax(260px,auto)] overflow-hidden rounded-md border border-slate-800 bg-slate-900/70 xl:min-h-0 xl:grid-rows-[auto_minmax(0,1fr)_minmax(260px,320px)]">
               <div className="flex flex-col gap-3 border-b border-slate-800 p-4 md:flex-row md:items-center md:justify-between">
                 <div className="min-w-0">
                   <p className="text-xs uppercase tracking-wide text-slate-500">Editor</p>
@@ -792,21 +796,45 @@ function CandidateSessionContent() {
                   value={selectedEditorValue}
                 />
               </div>
-              <section className="grid gap-4 border-t border-slate-800 p-4 lg:grid-cols-2">
+              <section className="min-h-0 overflow-hidden border-t border-slate-800 bg-slate-950/70">
+                <div className="grid h-full gap-4 overflow-auto p-4 lg:grid-cols-2">
                 <div className="min-w-0">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-slate-100">Run output</h3>
-                    {testRun ? (
-                      <span className={testRun.status === "passed" ? "text-xs text-emerald-300" : "text-xs text-amber-300"}>
-                        {testRun.status}
-                      </span>
-                    ) : null}
-                  </div>
-                  {testRun ? (
-                    <div className="mt-3 grid max-h-52 gap-2 overflow-auto pr-1">
-                      <p className={testRun.status === "passed" ? "text-sm text-emerald-300" : "text-sm text-amber-300"}>
-                        {testRun.output}
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-100">Run output</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {workspace?.project?.test_command
+                          ? `Simulating ${workspace.project.test_command}`
+                          : "Simulating project validation"}
                       </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {testRun ? (
+                        <span className={testRun.status === "passed" ? "text-xs text-emerald-300" : "text-xs text-amber-300"}>
+                          {testRun.status}
+                        </span>
+                      ) : null}
+                      <Button disabled={isRunningTests || isSubmitted} onClick={() => void handleRunTests()} type="button">
+                        {isRunningTests ? "Running..." : "Run"}
+                      </Button>
+                    </div>
+                  </div>
+                  {isRunningTests ? (
+                    <div className="mt-3 rounded-md border border-cyan-900/70 bg-cyan-950/20 px-3 py-2 text-sm text-cyan-100">
+                      Running deterministic simulation against current files
+                      {testRunStartedAt ? `, started ${formatSavedAt(testRunStartedAt)}` : ""}.
+                    </div>
+                  ) : null}
+                  {testRunError ? (
+                    <div className="mt-3 rounded-md border border-red-900/70 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+                      {testRunError}
+                    </div>
+                  ) : null}
+                  {testRun ? (
+                    <div className="mt-3 grid max-h-56 gap-2 overflow-auto pr-1">
+                      <div className={testRun.status === "passed" ? "rounded-md border border-emerald-900/70 bg-emerald-950/20 px-3 py-2 text-sm text-emerald-200" : "rounded-md border border-amber-900/70 bg-amber-950/20 px-3 py-2 text-sm text-amber-200"}>
+                        {testRun.output}
+                      </div>
                       {testRun.cases.map((testCase) => (
                         <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm" key={testCase.name}>
                           <div className="flex items-center justify-between gap-3">
@@ -819,17 +847,18 @@ function CandidateSessionContent() {
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <p className="mt-2 text-sm leading-6 text-slate-400">
-                      Simulated checks use the current session file snapshots and the project test command.
-                    </p>
-                  )}
+                  ) : !isRunningTests && !testRunError ? (
+                    <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-400">
+                      Press Run to simulate the project with the current file snapshots, generated seed data, and validation rules.
+                    </div>
+                  ) : null}
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-semibold text-slate-100">Validation</h3>
-                  <p className="mt-3 max-h-52 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                  <p className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-300">
                     {session.scenario.validation_instructions || "Use the provided project tests and summarize your verification."}
                   </p>
+                </div>
                 </div>
               </section>
             </section>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
@@ -446,6 +447,30 @@ def _scenario_terms(text: str) -> list[str]:
     return terms
 
 
+def _seed_data_summary(visible_files: list[SessionFileSnapshot]) -> tuple[str | None, int | None, str | None]:
+    seed_file = next(
+        (
+            snapshot
+            for snapshot in visible_files
+            if snapshot.project_file.file_type == "data" and snapshot.path.lower().endswith(".json")
+        ),
+        None,
+    )
+    if seed_file is None:
+        return None, None, None
+
+    try:
+        parsed = json.loads(seed_file.current_content)
+    except json.JSONDecodeError as exc:
+        return seed_file.path, None, f"Seed data JSON is invalid: {exc.msg}."
+
+    if isinstance(parsed, list):
+        return seed_file.path, len(parsed), None
+    if isinstance(parsed, dict):
+        return seed_file.path, len(parsed), None
+    return seed_file.path, 1, None
+
+
 def _simulate_workspace_test_run(
     session: InterviewSession,
     snapshots: list[SessionFileSnapshot],
@@ -465,6 +490,7 @@ def _simulate_workspace_test_run(
     feature_terms = _scenario_terms(scenario.feature_request if scenario else "")
     bug_hits = [term for term in bug_terms if term in changed_text or term in current_text]
     feature_hits = [term for term in feature_terms if term in changed_text or term in current_text]
+    seed_path, seed_record_count, seed_error = _seed_data_summary(visible_files)
 
     quantity_bug_expected = scenario is not None and "quantity" in scenario.bug_description.lower()
     quantity_bug_signal = (
@@ -481,6 +507,15 @@ def _simulate_workspace_test_run(
     )
 
     cases = [
+        TestCaseResult(
+            name="seed-data-loaded",
+            status="passed" if seed_path and seed_error is None else "failed",
+            details=(
+                f"Loaded {seed_record_count} records from `{seed_path}` for deterministic simulation."
+                if seed_path and seed_error is None
+                else seed_error or "No JSON seed data file was available for this project."
+            ),
+        ),
         TestCaseResult(
             name="workspace-files-present",
             status="passed" if len(visible_files) >= 2 else "failed",
@@ -546,7 +581,9 @@ def _simulate_workspace_test_run(
     ]
     passed_count = sum(1 for case in cases if case.status == "passed")
     run_status = "passed" if passed_count == len(cases) else "failed"
-    output = f"{passed_count}/{len(cases)} simulated workspace checks passed."
+    command = project.test_command if project and project.test_command else "project validation"
+    seed_note = f" using `{seed_path}`" if seed_path else ""
+    output = f"{passed_count}/{len(cases)} simulated checks passed for `{command}`{seed_note}."
     return TestRunResult(status=run_status, output=output, cases=cases)
 
 

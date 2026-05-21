@@ -494,7 +494,8 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
     assert run_response.status_code == 200
     test_run = run_response.json()
     assert test_run["status"] == "passed"
-    assert "simulated workspace checks" in test_run["output"]
+    assert "simulated checks passed for `pytest` using `app/data/orders.json`" in test_run["output"]
+    assert test_run["cases"][0]["name"] == "seed-data-loaded"
 
     submit_response = client.post(
         f"/api/sessions/{session['id']}/submit",

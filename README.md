@@ -382,7 +382,7 @@ Content-Type: application/json
 
 {
   "notes": "Root cause and verification summary.",
-  "test_output": "6/6 simulated workspace checks passed."
+  "test_output": "7/7 simulated checks passed for `pytest` using `app/data/orders.json`."
 }
 ```
 
