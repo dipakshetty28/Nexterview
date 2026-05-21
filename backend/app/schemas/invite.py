@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.interview import InterviewSessionStatus
+from app.models.interview import InterviewSessionStatus, TelemetryEventType
 
 
 class InviteCreateRequest(BaseModel):
@@ -68,6 +69,20 @@ class CandidateSessionInterviewRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SubmissionRead(BaseModel):
+    id: UUID
+    session_id: UUID
+    candidate_id: UUID
+    code: str
+    notes: str
+    test_output: str | None
+    submitted_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class InterviewSessionRead(BaseModel):
     id: UUID
     interview_id: UUID
@@ -76,9 +91,51 @@ class InterviewSessionRead(BaseModel):
     started_at: datetime | None
     submitted_at: datetime | None
     reviewed_at: datetime | None
+    latest_code: str | None
+    notes: str | None
+    last_autosaved_at: datetime | None
     created_at: datetime
     updated_at: datetime
     interview: CandidateSessionInterviewRead
     scenario: CandidateScenarioRead
+    submission: SubmissionRead | None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TelemetryEventCreate(BaseModel):
+    event_type: TelemetryEventType
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class TelemetryEventRead(BaseModel):
+    id: UUID
+    session_id: UUID
+    candidate_id: UUID
+    event_type: TelemetryEventType
+    payload: dict[str, Any]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TestRunRequest(BaseModel):
+    code: str | None = None
+
+
+class TestCaseResult(BaseModel):
+    name: str
+    status: str
+    details: str
+
+
+class TestRunResult(BaseModel):
+    status: str
+    output: str
+    cases: list[TestCaseResult]
+
+
+class SubmissionCreate(BaseModel):
+    code: str = Field(min_length=1)
+    notes: str = Field(default="", max_length=10000)
+    test_output: str | None = Field(default=None, max_length=20000)

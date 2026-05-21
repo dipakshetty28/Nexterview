@@ -114,6 +114,9 @@ export type CandidateSession = {
   started_at: string | null;
   submitted_at: string | null;
   reviewed_at: string | null;
+  latest_code: string | null;
+  notes: string | null;
+  last_autosaved_at: string | null;
   created_at: string;
   updated_at: string;
   interview: {
@@ -136,4 +139,40 @@ export type CandidateSession = {
     logs_or_bug_report: string;
     candidate_instructions: string;
   };
+  submission: Submission | null;
+};
+
+export type TelemetryEventType = "session_started" | "code_edit" | "note_updated" | "test_run" | "submission_created";
+
+export type TelemetryEvent = {
+  id: string;
+  session_id: string;
+  candidate_id: string;
+  event_type: TelemetryEventType;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type TestCaseResult = {
+  name: string;
+  status: "passed" | "failed";
+  details: string;
+};
+
+export type TestRunResult = {
+  status: "passed" | "failed";
+  output: string;
+  cases: TestCaseResult[];
+};
+
+export type Submission = {
+  id: string;
+  session_id: string;
+  candidate_id: string;
+  code: string;
+  notes: string;
+  test_output: string | null;
+  submitted_at: string;
+  created_at: string;
+  updated_at: string;
 };

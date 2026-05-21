@@ -1,6 +1,6 @@
 # Nexterview
 
-Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation, and candidate invite/session access.
+Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation, candidate invite/session access, and a candidate interview room with telemetry.
 
 ## Current Scope
 
@@ -25,12 +25,15 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `GET /api/invite/{token}`
   - `POST /api/invite/{token}/start`
   - `GET /api/sessions/{id}`
+  - `POST /api/sessions/{id}/events`
+  - `POST /api/sessions/{id}/run-tests`
+  - `POST /api/sessions/{id}/submit`
 - Users, organizations, and organization memberships
-- Interviews, invite tokens, interview sessions, and stored generated scenarios
+- Interviews, invite tokens, interview sessions, stored generated scenarios, telemetry events, and submissions
 - OpenAI Responses API integration on the backend with Pydantic structured output validation
 - Graceful deterministic scenario fallback when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and candidate session page
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate interview room
 - Seed script with demo users and a sample generated interview scenario
 
 ## Architecture
@@ -170,7 +173,7 @@ Demo invite flow:
 1. Log in as `admin@nexterview.dev` or `interviewer@nexterview.dev`.
 2. Open `/interviews`, enter `candidate@nexterview.dev`, and generate an invite link.
 3. Open the invite link, log in as `candidate@nexterview.dev`, and start the interview.
-4. The candidate lands on `/sessions/{id}` with the generated task details. The editor is intentionally not implemented yet.
+4. The candidate lands on `/sessions/{id}` with task context, a Monaco editor, notes, timer, AI copilot placeholder, test simulation, autosave, and final submit.
 
 ## API Contracts
 
@@ -288,7 +291,52 @@ GET /api/sessions/{id}
 Authorization: Bearer <candidate_access_token>
 ```
 
-Candidate session statuses are `invited`, `started`, `submitted`, and `reviewed`. Candidates can only read sessions where they are the session owner.
+The session response includes the candidate-safe task scenario, `latest_code`, `notes`, `last_autosaved_at`, and the final `submission` when one exists.
+
+Save a candidate room event:
+
+```http
+POST /api/sessions/{id}/events
+Authorization: Bearer <candidate_access_token>
+Content-Type: application/json
+
+{
+  "event_type": "code_edit",
+  "payload": {
+    "code": "def handle_webhook(event):\n    return event\n"
+  }
+}
+```
+
+Supported telemetry event types are `session_started`, `code_edit`, `note_updated`, `test_run`, and `submission_created`. `code_edit` autosaves `latest_code`; `note_updated` autosaves the root cause notes. `test_run` and `submission_created` are created through their dedicated endpoints.
+
+Run the deterministic test simulation:
+
+```http
+POST /api/sessions/{id}/run-tests
+Authorization: Bearer <candidate_access_token>
+Content-Type: application/json
+
+{
+  "code": "def handle_webhook(event):\n    return event\n"
+}
+```
+
+Submit the final solution:
+
+```http
+POST /api/sessions/{id}/submit
+Authorization: Bearer <candidate_access_token>
+Content-Type: application/json
+
+{
+  "code": "def handle_webhook(event):\n    return event\n",
+  "notes": "Root cause and verification summary.",
+  "test_output": "4/4 simulated checks passed."
+}
+```
+
+Candidate session statuses are `invited`, `started`, `submitted`, and `reviewed`. Candidates can only access sessions where they are the session owner. Submitted or reviewed sessions no longer accept code edits, note updates, test runs, or duplicate final submissions.
 
 ## Verification
 
@@ -359,6 +407,25 @@ curl -X POST http://localhost:8000/api/interviews/<interview_id>/invite \
   -H "Authorization: Bearer <interviewer_access_token>" \
   -H "Content-Type: application/json" \
   -d '{"candidate_email":"candidate@nexterview.dev"}'
+```
+
+Candidate room smoke test:
+
+```bash
+curl -X POST http://localhost:8000/api/sessions/<session_id>/events \
+  -H "Authorization: Bearer <candidate_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"event_type":"code_edit","payload":{"code":"def handle_webhook(event):\n    return event\n"}}'
+
+curl -X POST http://localhost:8000/api/sessions/<session_id>/run-tests \
+  -H "Authorization: Bearer <candidate_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"def handle_webhook(event):\n    return event\n"}'
+
+curl -X POST http://localhost:8000/api/sessions/<session_id>/submit \
+  -H "Authorization: Bearer <candidate_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"def handle_webhook(event):\n    return event\n","notes":"Root cause and verification summary.","test_output":"Simulation completed."}'
 ```
 
 ## Deployment Notes
