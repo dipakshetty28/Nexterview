@@ -105,6 +105,7 @@ class AIMessageRead(BaseModel):
     code_snapshot: str | None
     ai_mode: str
     ai_model: str | None
+    message_metadata: dict[str, Any]
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -173,8 +174,25 @@ class SubmissionCreate(BaseModel):
 class AICopilotRequest(BaseModel):
     question: str = Field(min_length=1, max_length=6000)
     code: str = Field(default="", max_length=200000)
+    current_file_path: str | None = Field(default=None, max_length=500)
+    current_file_content: str | None = Field(default=None, max_length=200000)
+    latest_test_output: str | None = Field(default=None, max_length=20000)
+    notes: str | None = Field(default=None, max_length=10000)
+
+
+class CopilotSuggestedFileRead(BaseModel):
+    path: str
+    reason: str
+
+
+class CopilotStructuredResponse(BaseModel):
+    answer: str
+    suggested_files: list[CopilotSuggestedFileRead] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
+    confidence: str
 
 
 class AICopilotResponse(BaseModel):
     user_message: AIMessageRead
     assistant_message: AIMessageRead
+    response: CopilotStructuredResponse

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from app.core.config import settings
 from app.models.interview import AIMessage, InterviewSession
@@ -22,6 +23,10 @@ class CopilotResult:
     content: str
     source: str
     model: str | None
+    suggested_files: list[dict[str, str]]
+    risk_flags: list[str]
+    confidence: str
+    included_context_size: int
 
 
 class CandidateCopilot:
@@ -30,13 +35,16 @@ class CandidateCopilot:
         *,
         session: InterviewSession,
         question: str,
-        code: str,
+        context: dict[str, Any],
         previous_messages: list[AIMessage],
     ) -> CopilotResult:
         mode = _normalized_mode(session.interview.allowed_ai_mode)
         if not settings.openai_api_key.strip():
-            return CopilotResult(
-                content=_fallback_reply(session=session, question=question, code=code, mode=mode),
+            return _fallback_result(
+                session=session,
+                question=question,
+                context=context,
+                previous_messages=previous_messages,
                 source="fallback",
                 model=None,
             )
@@ -48,6 +56,12 @@ class CandidateCopilot:
                 api_key=settings.openai_api_key,
                 timeout=settings.openai_request_timeout_seconds,
             )
+            context_prompt = _build_context_prompt(
+                context=context,
+                question=question,
+                previous_messages=previous_messages,
+                mode=mode,
+            )
             response = client.responses.create(
                 model=settings.openai_model,
                 input=[
@@ -57,24 +71,30 @@ class CandidateCopilot:
                     },
                     {
                         "role": "user",
-                        "content": _build_context_prompt(
-                            session=session,
-                            question=question,
-                            code=code,
-                            previous_messages=previous_messages,
-                            mode=mode,
-                        ),
+                        "content": context_prompt,
                     },
                 ],
             )
             output_text = response.output_text.strip()
             if not output_text:
                 raise ValueError("OpenAI returned an empty copilot response.")
-            return CopilotResult(content=output_text, source="openai", model=settings.openai_model)
+            parsed = _parse_structured_response(output_text, visible_paths=_visible_paths(context))
+            return CopilotResult(
+                content=parsed["answer"],
+                suggested_files=parsed["suggested_files"],
+                risk_flags=parsed["risk_flags"],
+                confidence=parsed["confidence"],
+                included_context_size=len(context_prompt),
+                source="openai",
+                model=settings.openai_model,
+            )
         except Exception:
             logger.warning("OpenAI candidate copilot failed; using fallback response.", exc_info=True)
-            return CopilotResult(
-                content=_fallback_reply(session=session, question=question, code=code, mode=mode),
+            return _fallback_result(
+                session=session,
+                question=question,
+                context=context,
+                previous_messages=previous_messages,
                 source="fallback",
                 model=settings.openai_model,
             )
@@ -91,11 +111,19 @@ def _system_prompt(mode: str) -> str:
     return (
         "You are the candidate-facing AI copilot inside a live engineering interview platform. "
         "The interviewer explicitly allows coding help. Do not refuse coding assistance. "
-        "You may provide code, explanations, debugging steps, and tradeoff analysis. "
-        "Do not mention hidden evaluation criteria or invent access to secrets, services, files, or test results. "
-        "Encourage verification and independent reasoning without withholding useful implementation help. "
+        "You may provide code, explanations, debugging steps, file-specific changes, and tradeoff analysis. "
+        "Directly answer candidate questions and ask clarifying questions only when truly needed. "
+        "Be practical and concise. Do not always provide a perfect final solution immediately; explain reasoning, "
+        "risks, and verification steps. If the candidate asks for final code, help with code while naming assumptions "
+        "and risks. Do not mention hidden evaluation criteria or invent access to secrets, services, files, or test "
+        "results. Never claim you executed tests unless the provided context says the platform produced that output. "
+        "Never reveal scoring, hidden rubrics, hidden tests, or interviewer-only notes. "
         f"Current allowed mode: {mode}.\n\n"
-        f"{_mode_guidance(mode)}"
+        f"{_mode_guidance(mode)}\n\n"
+        "Return only strict JSON with this exact shape: "
+        '{"answer":"markdown answer","suggested_files":[{"path":"repo/path","reason":"why"}],'
+        '"risk_flags":["short risk"],"confidence":"low|medium|high"}. '
+        "Use suggested_files only for visible project paths from the provided context."
     )
 
 
@@ -122,62 +150,120 @@ def _mode_guidance(mode: str) -> str:
 
 def _build_context_prompt(
     *,
-    session: InterviewSession,
+    context: dict[str, Any],
     question: str,
-    code: str,
     previous_messages: list[AIMessage],
     mode: str,
 ) -> str:
-    scenario = session.interview.scenario
-    if scenario is None:
-        raise ValueError("Session has no generated scenario.")
-
     previous = [
         {
             "role": message.role.value,
             "content": message.content,
+            "metadata": message.message_metadata,
         }
         for message in previous_messages[-12:]
     ]
     payload = {
         "ai_mode": mode,
-        "interview": {
-            "role_title": session.interview.role_title,
-            "seniority": session.interview.seniority,
-            "stack": session.interview.stack,
-            "difficulty": session.interview.difficulty,
-            "interview_type": session.interview.interview_type,
-            "duration_minutes": session.interview.duration_minutes,
-        },
-        "scenario": {
-            "title": scenario.title,
-            "business_context": scenario.business_context,
-            "candidate_task_summary": scenario.candidate_task_summary,
-            "technical_requirements": scenario.technical_requirements,
-            "expected_behavior": scenario.expected_behavior,
-            "logs_or_bug_report": scenario.logs_or_bug_report,
-            "bug_description": scenario.bug_description,
-            "feature_request": scenario.feature_request,
-            "validation_instructions": scenario.validation_instructions,
-            "candidate_instructions": scenario.candidate_instructions,
-        },
+        **context,
         "previous_messages": previous,
-        "candidate_code": code,
         "candidate_question": question,
     }
     return (
-        "Answer the candidate using this JSON context. The answer should be markdown. "
-        "When code is useful, include fenced code blocks with a language tag.\n\n"
+        "Answer the candidate using this candidate-safe JSON context. The answer field should be markdown. "
+        "When code is useful, include fenced code blocks with a language tag in answer. "
+        "Do not reference files that are not listed in visible_project_file_tree.\n\n"
         f"{json.dumps(payload, indent=2)}"
     )
 
 
-def _fallback_reply(*, session: InterviewSession, question: str, code: str, mode: str) -> str:
+def _parse_structured_response(raw_text: str, *, visible_paths: set[str]) -> dict[str, Any]:
+    payload = json.loads(raw_text)
+    if not isinstance(payload, dict):
+        raise ValueError("Copilot response must be a JSON object.")
+
+    answer = payload.get("answer")
+    if not isinstance(answer, str) or not answer.strip():
+        raise ValueError("Copilot response must include a non-empty answer.")
+
+    suggested_files: list[dict[str, str]] = []
+    raw_suggested_files = payload.get("suggested_files")
+    if isinstance(raw_suggested_files, list):
+        for item in raw_suggested_files[:6]:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path")
+            reason = item.get("reason")
+            if isinstance(path, str) and path in visible_paths:
+                suggested_files.append(
+                    {
+                        "path": path,
+                        "reason": reason if isinstance(reason, str) and reason.strip() else "Relevant to this answer.",
+                    }
+                )
+
+    risk_flags: list[str] = []
+    raw_risk_flags = payload.get("risk_flags")
+    if isinstance(raw_risk_flags, list):
+        risk_flags = [flag.strip() for flag in raw_risk_flags[:8] if isinstance(flag, str) and flag.strip()]
+
+    confidence = payload.get("confidence")
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "medium"
+
+    return {
+        "answer": answer.strip(),
+        "suggested_files": suggested_files,
+        "risk_flags": risk_flags,
+        "confidence": confidence,
+    }
+
+
+def _visible_paths(context: dict[str, Any]) -> set[str]:
+    raw_paths = context.get("visible_project_file_tree")
+    if not isinstance(raw_paths, list):
+        return set()
+    return {path for path in raw_paths if isinstance(path, str)}
+
+
+def _fallback_result(
+    *,
+    session: InterviewSession,
+    question: str,
+    context: dict[str, Any],
+    previous_messages: list[AIMessage],
+    source: str,
+    model: str | None,
+) -> CopilotResult:
+    mode = _normalized_mode(session.interview.allowed_ai_mode)
+    content = _fallback_reply(session=session, question=question, context=context, mode=mode)
+    suggested_files = _fallback_suggested_files(context)
+    risk_flags = _fallback_risk_flags(question)
+    context_prompt = _build_context_prompt(
+        context=context,
+        question=question,
+        previous_messages=previous_messages,
+        mode=mode,
+    )
+    return CopilotResult(
+        content=content,
+        suggested_files=suggested_files,
+        risk_flags=risk_flags,
+        confidence="medium",
+        included_context_size=len(context_prompt),
+        source=source,
+        model=model,
+    )
+
+
+def _fallback_reply(*, session: InterviewSession, question: str, context: dict[str, Any], mode: str) -> str:
     scenario = session.interview.scenario
     title = scenario.title if scenario else "the task"
     requirements = scenario.technical_requirements if scenario else []
     primary_requirement = requirements[0] if requirements else "make the smallest safe change that satisfies the task"
-    code_hint = "current code snapshot" if code.strip() else "starter code"
+    current_file = context.get("current_file")
+    current_file_path = current_file.get("path") if isinstance(current_file, dict) else None
+    code_hint = f"`{current_file_path}`" if isinstance(current_file_path, str) and current_file_path else "the current file"
 
     if mode == "Hint Mode":
         return (
@@ -207,7 +293,7 @@ def _fallback_reply(*, session: InterviewSession, question: str, code: str, mode
     return (
         f"I can help implement this. For **{title}**, aim for a small, testable change around: "
         f"{primary_requirement}\n\n"
-        "Suggested approach:\n\n"
+        f"Start in {code_hint}. Suggested approach:\n\n"
         "```python\n"
         "def apply_fix(input_value):\n"
         "    stable_key = derive_stable_key(input_value)\n"
@@ -219,3 +305,25 @@ def _fallback_reply(*, session: InterviewSession, question: str, code: str, mode
         "Then validate the edge case from the bug report, plus one normal success path. "
         f"Your question was: {question.strip()}"
     )
+
+
+def _fallback_suggested_files(context: dict[str, Any]) -> list[dict[str, str]]:
+    current_file = context.get("current_file")
+    if isinstance(current_file, dict):
+        path = current_file.get("path")
+        if isinstance(path, str) and path:
+            return [{"path": path, "reason": "Currently open file and likely the best starting point."}]
+
+    latest_files = context.get("latest_saved_files")
+    if isinstance(latest_files, list):
+        for item in latest_files:
+            if isinstance(item, dict) and item.get("file_type") == "source" and isinstance(item.get("path"), str):
+                return [{"path": str(item["path"]), "reason": "Visible source file related to the task."}]
+    return []
+
+
+def _fallback_risk_flags(question: str) -> list[str]:
+    lowered = question.lower()
+    if "final code" in lowered or "just give" in lowered:
+        return ["Verify the generated patch against the visible checks before submitting."]
+    return []

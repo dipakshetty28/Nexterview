@@ -182,7 +182,14 @@ export function updateWorkspaceFile(
 export function askCandidateCopilot(
   token: string,
   sessionId: string,
-  input: { question: string; code: string },
+  input: {
+    question: string;
+    code?: string;
+    current_file_path?: string | null;
+    current_file_content?: string | null;
+    latest_test_output?: string | null;
+    notes?: string | null;
+  },
 ): Promise<AICopilotResponse> {
   return apiRequest<AICopilotResponse>(`/api/sessions/${sessionId}/ai`, {
     method: "POST",

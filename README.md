@@ -40,6 +40,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
 - Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate workspace with a nested file tree, pre-provisioned environment messaging, snapshot autosave, markdown AI copilot, notes, pass/fail run output, and final submit
 - Optional GitHub submission publisher that creates a branch, commits changed visible workspace files, optionally opens a pull request, and preserves database submissions when GitHub is not configured or push fails
+- Structured AI copilot responses with markdown answers, suggested file chips, confidence, risk flags, and telemetry for later prompting-skill analytics
 - Seed script with demo users and a sample generated interview scenario
 
 ## Architecture
@@ -381,11 +382,27 @@ Content-Type: application/json
 
 {
   "question": "Can you help me make retries idempotent?",
-  "code": "def charge_customer(customer_id, gateway):\n    return gateway.charge(customer_id)\n"
+  "current_file_path": "app/services/orders.py",
+  "current_file_content": "def calculate_order_total(order):\n    return sum(item['unit_price'] for item in order['items'])\n",
+  "latest_test_output": "5/7 workspace checks passed using `app/data/orders.json`.",
+  "notes": "Quantity handling looks suspicious."
 }
 ```
 
-The copilot receives the generated scenario, visible workspace snapshot context when project files exist, the candidate question, previous `ai_messages`, and the interview's configured AI mode: `Hint Mode`, `Pair Programmer Mode`, `Senior Engineer Mode`, or `Debugging Assistant Mode`. The backend stores both the candidate prompt and the assistant response in `ai_messages` and records `ai_prompt_sent` telemetry. The OpenAI key stays backend-only; the frontend only calls Nexterview's API.
+The copilot receives only candidate-safe context: scenario title, business context, candidate instructions, visible bug and feature request, validation instructions, visible project file tree, currently open file path/content, latest saved visible workspace files, previous AI messages, the candidate question, latest test output, and candidate notes/root cause summary. It never receives hidden rubrics, hidden evaluation points, hidden tests, or interviewer-only notes.
+
+Copilot responses are stored in `ai_messages`. Assistant message `content` contains the markdown answer, and `message_metadata` stores `suggested_files`, `risk_flags`, `confidence`, and provider source. The API response also includes a structured `response` object:
+
+```json
+{
+  "answer": "Markdown answer with code when useful.",
+  "suggested_files": [{"path": "app/services/orders.py", "reason": "Likely source of the quantity bug."}],
+  "risk_flags": ["Verify status filtering before submitting."],
+  "confidence": "medium"
+}
+```
+
+The backend records `ai_prompt_sent` telemetry with prompt text, included context size, current file path, AI mode, response confidence, and timestamp. The OpenAI key stays backend-only; the frontend only calls Nexterview's API.
 
 Run the workspace checks:
 

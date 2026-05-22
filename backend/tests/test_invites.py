@@ -360,12 +360,22 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
             *,
             session: InterviewSession,
             question: str,
-            code: str,
+            context: dict[str, object],
             previous_messages: list[AIMessage],
         ) -> CopilotResult:
             assert str(session.id) == session_id
             assert "idempotency" in question.lower()
-            assert "File: app/main.py" in code
+            assert "hidden_rubric" not in context
+            assert "hidden_evaluation_points" not in context
+            assert "interviewer_rubric" not in context
+            assert "tests/test_orders_hidden.py" not in str(context)
+            assert "app/main.py" in context["visible_project_file_tree"]
+            assert "app/services/orders.py" in context["visible_project_file_tree"]
+            assert context["latest_test_output"] == test_run["output"]
+            current_file = context["current_file"]
+            assert isinstance(current_file, dict)
+            assert current_file["path"] == "app/main.py"
+            assert "Root cause" in str(context["candidate_notes"])
             if self.calls == 0:
                 assert previous_messages == []
                 content = "Try extracting the idempotency key before the retry loop.\n\n```python\nkey = invoice_id\n```"
@@ -378,6 +388,10 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
                 content=content,
                 source="mock",
                 model="test-copilot",
+                suggested_files=[{"path": "app/main.py", "reason": "Open file with handler code."}],
+                risk_flags=["Add a regression check before submitting."],
+                confidence="medium",
+                included_context_size=1234,
             )
 
     stub_copilot = StubCopilot()
@@ -385,7 +399,14 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     ai_response = client.post(
         f"/api/sessions/{session['id']}/ai",
         headers={"Authorization": f"Bearer {candidate_token}"},
-        json={"question": "How should I fix the idempotency bug?", "code": edited_code},
+        json={
+            "question": "How should I fix the idempotency bug?",
+            "code": edited_code,
+            "current_file_path": "app/main.py",
+            "current_file_content": edited_code,
+            "latest_test_output": test_run["output"],
+            "notes": notes,
+        },
     )
     assert ai_response.status_code == 201
     ai_exchange = ai_response.json()
@@ -394,11 +415,22 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert ai_exchange["assistant_message"]["role"] == "assistant"
     assert ai_exchange["assistant_message"]["ai_model"] == "test-copilot"
     assert "```python" in ai_exchange["assistant_message"]["content"]
+    assert ai_exchange["assistant_message"]["message_metadata"]["confidence"] == "medium"
+    assert ai_exchange["assistant_message"]["message_metadata"]["suggested_files"][0]["path"] == "app/main.py"
+    assert ai_exchange["response"]["confidence"] == "medium"
+    assert ai_exchange["response"]["suggested_files"][0]["path"] == "app/main.py"
 
     follow_up_response = client.post(
         f"/api/sessions/{session['id']}/ai",
         headers={"Authorization": f"Bearer {candidate_token}"},
-        json={"question": "Does this idempotency approach need a test?", "code": edited_code},
+        json={
+            "question": "Does this idempotency approach need a test?",
+            "code": edited_code,
+            "current_file_path": "app/main.py",
+            "current_file_content": edited_code,
+            "latest_test_output": test_run["output"],
+            "notes": notes,
+        },
     )
     assert follow_up_response.status_code == 201
     assert "regression test" in follow_up_response.json()["assistant_message"]["content"]
@@ -452,7 +484,9 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     db_generator = app.dependency_overrides[get_db]()
     db = next(db_generator)
     try:
-        event_types = [event.event_type for event in db.execute(select(TelemetryEvent)).scalars()]
+        events = list(db.execute(select(TelemetryEvent)).scalars())
+        event_types = [event.event_type for event in events]
+        ai_event = next(event for event in events if event.event_type == TelemetryEventType.AI_PROMPT_SENT)
     finally:
         db.close()
     assert TelemetryEventType.SESSION_STARTED in event_types
@@ -461,6 +495,11 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert TelemetryEventType.TEST_RUN in event_types
     assert TelemetryEventType.AI_PROMPT_SENT in event_types
     assert TelemetryEventType.SUBMISSION_CREATED in event_types
+    assert ai_event.payload["candidate_prompt"] == "How should I fix the idempotency bug?"
+    assert ai_event.payload["included_context_size"] == 1234
+    assert ai_event.payload["current_file_path"] == "app/main.py"
+    assert ai_event.payload["ai_mode"] == "Pair Programmer Mode"
+    assert ai_event.payload["response_confidence"] == "medium"
 
     db_generator = app.dependency_overrides[get_db]()
     db = next(db_generator)
@@ -475,7 +514,9 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
         AIMessageRole.ASSISTANT,
     ]
     assert ai_messages[0].content == "How should I fix the idempotency bug?"
+    assert ai_messages[0].message_metadata["included_context_size"] == 1234
     assert "idempotency key" in ai_messages[1].content
+    assert ai_messages[1].message_metadata["suggested_files"][0]["path"] == "app/main.py"
 
 
 def test_candidate_workspace_edits_snapshots_and_submits_files(

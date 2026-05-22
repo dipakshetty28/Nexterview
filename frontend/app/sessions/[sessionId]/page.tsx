@@ -23,6 +23,7 @@ import type {
   AIMessage,
   CandidateSession,
   CandidateWorkspace,
+  CopilotSuggestedFile,
   Submission,
   TestRunResult,
   WorkspaceFile,
@@ -73,6 +74,14 @@ function branchUrl(submission: Submission): string | null {
     return null;
   }
   return `${submission.repository_url}/tree/${encodeURIComponent(submission.branch_name)}`;
+}
+
+function formatCopilotTestOutput(testRun: TestRunResult | null): string | null {
+  if (!testRun) {
+    return null;
+  }
+  const caseLines = testRun.cases.map((testCase) => `- ${testCase.name}: ${testCase.status} - ${testCase.details}`);
+  return [`Status: ${testRun.status}`, `Output: ${testRun.output}`, ...caseLines].join("\n");
 }
 
 function languageForStack(stack: string[]): string {
@@ -292,8 +301,37 @@ function CopyableCodeBlock({ code, language }: { code: string; language: string 
   );
 }
 
-function CopilotMessage({ message }: { message: AIMessage }) {
+function suggestedFilesForMessage(message: AIMessage): CopilotSuggestedFile[] {
+  const rawSuggestedFiles = message.message_metadata?.suggested_files;
+  if (!Array.isArray(rawSuggestedFiles)) {
+    return [];
+  }
+  return rawSuggestedFiles.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const candidate = item as Record<string, unknown>;
+    return typeof candidate.path === "string" && typeof candidate.reason === "string"
+      ? [{ path: candidate.path, reason: candidate.reason }]
+      : [];
+  });
+}
+
+function confidenceForMessage(message: AIMessage): string | null {
+  const confidence = message.message_metadata?.confidence;
+  return typeof confidence === "string" ? confidence : null;
+}
+
+function CopilotMessage({
+  message,
+  onOpenSuggestedFile,
+}: {
+  message: AIMessage;
+  onOpenSuggestedFile: (path: string) => void;
+}) {
   const isAssistant = message.role === "assistant";
+  const suggestedFiles = isAssistant ? suggestedFilesForMessage(message) : [];
+  const confidence = isAssistant ? confidenceForMessage(message) : null;
   return (
     <div
       className={
@@ -306,6 +344,22 @@ function CopilotMessage({ message }: { message: AIMessage }) {
       {isAssistant ? (
         <div className="grid gap-2">
           <ReactMarkdown components={markdownComponents}>{message.content}</ReactMarkdown>
+          {suggestedFiles.length > 0 ? (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {suggestedFiles.map((file) => (
+                <button
+                  className="max-w-full truncate rounded-full border border-cyan-900/70 bg-cyan-950/30 px-2.5 py-1 text-left text-xs text-cyan-100 hover:border-cyan-600"
+                  key={`${message.id}-${file.path}`}
+                  onClick={() => onOpenSuggestedFile(file.path)}
+                  title={file.reason}
+                  type="button"
+                >
+                  {file.path}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {confidence ? <p className="text-xs text-slate-500">Confidence: {confidence}</p> : null}
         </div>
       ) : (
         <p className="whitespace-pre-wrap leading-6">{message.content}</p>
@@ -585,6 +639,26 @@ function CandidateSessionContent() {
     }).catch(() => undefined);
   }
 
+  function handleOpenSuggestedFile(path: string) {
+    const file = workspaceFiles.find((workspaceFile) => workspaceFile.path === path);
+    if (!file) {
+      setError(`Copilot suggested ${path}, but that file is not visible in this workspace.`);
+      return;
+    }
+    handleSelectFile(file);
+  }
+
+  function handleAddSelectedFileContext() {
+    if (!selectedFile) {
+      return;
+    }
+    setCopilotQuestion((current) => {
+      const trimmed = current.trim();
+      const addition = `Use the currently open file ${selectedFile.path} as context.`;
+      return trimmed ? `${trimmed}\n\n${addition}` : addition;
+    });
+  }
+
   async function handleRunTests() {
     if (!token || !session) {
       return;
@@ -668,13 +742,23 @@ function CandidateSessionContent() {
     }
 
     const question = copilotQuestion.trim();
-    const codeContext = selectedFile
-      ? `File: ${selectedFile.path}\n\n${latestFileContents.current[selectedFile.id] ?? selectedFile.current_content}`
-      : legacyCode;
     setIsAskingCopilot(true);
     setError(null);
     try {
-      const response = await askCandidateCopilot(token, session.id, { question, code: codeContext });
+      if (hasWorkspace) {
+        await flushPendingWorkspaceSaves();
+      }
+      const currentFileContent = selectedFile
+        ? latestFileContents.current[selectedFile.id] ?? selectedFile.current_content
+        : legacyCode;
+      const response = await askCandidateCopilot(token, session.id, {
+        question,
+        code: currentFileContent,
+        current_file_path: selectedFile?.path ?? null,
+        current_file_content: currentFileContent,
+        latest_test_output: formatCopilotTestOutput(testRun),
+        notes,
+      });
       setCopilotMessages((currentMessages) => [
         ...currentMessages,
         response.user_message,
@@ -1012,7 +1096,13 @@ function CandidateSessionContent() {
                         Ask for implementation help, debugging hypotheses, code review, or a validation plan.
                       </div>
                     ) : (
-                      copilotMessages.map((message) => <CopilotMessage key={message.id} message={message} />)
+                      copilotMessages.map((message) => (
+                        <CopilotMessage
+                          key={message.id}
+                          message={message}
+                          onOpenSuggestedFile={handleOpenSuggestedFile}
+                        />
+                      ))
                     )}
                   </div>
                   <textarea
@@ -1022,6 +1112,17 @@ function CandidateSessionContent() {
                     placeholder="Ask for a hint, patch, debugging plan, or edge-case review."
                     value={copilotQuestion}
                   />
+                  {selectedFile ? (
+                    <Button
+                      className="mt-2 w-full"
+                      disabled={isAskingCopilot}
+                      onClick={handleAddSelectedFileContext}
+                      type="button"
+                      variant="secondary"
+                    >
+                      Add selected file context
+                    </Button>
+                  ) : null}
                   <Button
                     className="mt-3 w-full"
                     disabled={isAskingCopilot || copilotQuestion.trim().length === 0}

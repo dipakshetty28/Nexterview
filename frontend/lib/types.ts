@@ -243,12 +243,26 @@ export type AIMessage = {
   code_snapshot: string | null;
   ai_mode: string;
   ai_model: string | null;
+  message_metadata: Record<string, unknown>;
   created_at: string;
+};
+
+export type CopilotSuggestedFile = {
+  path: string;
+  reason: string;
+};
+
+export type CopilotStructuredResponse = {
+  answer: string;
+  suggested_files: CopilotSuggestedFile[];
+  risk_flags: string[];
+  confidence: "low" | "medium" | "high";
 };
 
 export type AICopilotResponse = {
   user_message: AIMessage;
   assistant_message: AIMessage;
+  response: CopilotStructuredResponse;
 };
 
 export type TelemetryEventType =

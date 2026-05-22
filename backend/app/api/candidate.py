@@ -35,6 +35,7 @@ from app.schemas.invite import (
     AIMessageRead,
     CandidateScenarioRead,
     CandidateSessionInterviewRead,
+    CopilotStructuredResponse,
     InterviewSessionRead,
     InviteInterviewRead,
     PublicInviteRead,
@@ -434,6 +435,73 @@ def _workspace_code_context(db: Session, *, session: InterviewSession, fallback_
     for snapshot in snapshots:
         parts.append(f"// File: {snapshot.path}\n{snapshot.current_content}")
     return "\n\n".join(parts)
+
+
+def _copilot_context(
+    db: Session,
+    *,
+    session: InterviewSession,
+    payload: AICopilotRequest,
+) -> dict[str, object]:
+    scenario = session.interview.scenario
+    if scenario is None:
+        raise ValueError("Session has no generated scenario.")
+
+    snapshots = _visible_session_snapshots(db, session=session)
+    visible_files = [
+        {
+            "path": snapshot.path,
+            "language": snapshot.language,
+            "file_type": snapshot.project_file.file_type,
+            "content": snapshot.current_content,
+        }
+        for snapshot in snapshots
+    ]
+    current_file_path = payload.current_file_path
+    current_file_content = payload.current_file_content
+    if current_file_content is None:
+        current_file_content = payload.code or None
+    if current_file_path is None and current_file_content:
+        current_file_path = scenario.project.entrypoint if scenario.project else "starter-code"
+
+    return {
+        "interview": {
+            "role_title": session.interview.role_title,
+            "seniority": session.interview.seniority,
+            "stack": session.interview.stack,
+            "difficulty": session.interview.difficulty,
+            "interview_type": session.interview.interview_type,
+            "duration_minutes": session.interview.duration_minutes,
+        },
+        "scenario": {
+            "title": scenario.title,
+            "business_context": scenario.business_context,
+            "candidate_task_summary": scenario.candidate_task_summary,
+            "technical_requirements": scenario.technical_requirements,
+            "expected_behavior": scenario.expected_behavior,
+            "logs_or_bug_report": scenario.logs_or_bug_report,
+            "bug_description": scenario.bug_description,
+            "feature_request": scenario.feature_request,
+            "validation_instructions": _candidate_validation_instructions(scenario.validation_instructions),
+            "candidate_instructions": scenario.candidate_instructions,
+        },
+        "visible_project_file_tree": [file_payload["path"] for file_payload in visible_files],
+        "current_file": {
+            "path": current_file_path,
+            "content": current_file_content,
+        },
+        "latest_saved_files": visible_files,
+        "latest_test_output": payload.latest_test_output,
+        "candidate_notes": payload.notes if payload.notes is not None else session.notes,
+    }
+
+
+def _current_file_path_from_context(context: dict[str, object]) -> str | None:
+    current_file = context.get("current_file")
+    if not isinstance(current_file, dict):
+        return None
+    path = current_file.get("path")
+    return path if isinstance(path, str) else None
 
 
 def _payload_string(payload: dict[str, object], key: str, *, max_length: int) -> str:
@@ -1044,6 +1112,8 @@ def ask_candidate_copilot(
     )
     fallback_code = payload.code or session.latest_code or session.interview.scenario.starter_code
     code_snapshot = _workspace_code_context(db, session=session, fallback_code=fallback_code)
+    copilot_context = _copilot_context(db, session=session, payload=payload)
+    current_file_path = _current_file_path_from_context(copilot_context)
     ai_mode = session.interview.allowed_ai_mode
 
     user_message = AIMessage(
@@ -1055,26 +1125,25 @@ def ask_candidate_copilot(
         code_snapshot=code_snapshot,
         ai_mode=ai_mode,
         ai_model=None,
-        message_metadata={},
-    )
-    db.add(user_message)
-    _create_event(
-        db,
-        session=session,
-        event_type=TelemetryEventType.AI_PROMPT_SENT,
-        payload={
-            "question_length": len(payload.question),
-            "code_snapshot_length": len(code_snapshot),
-            "ai_mode": ai_mode,
+        message_metadata={
+            "candidate_prompt": payload.question,
+            "current_file_path": current_file_path,
+            "latest_test_output_included": bool(payload.latest_test_output),
+            "notes_included": bool(payload.notes or session.notes),
         },
     )
+    db.add(user_message)
 
     result = copilot.generate_reply(
         session=session,
         question=payload.question,
-        code=code_snapshot,
+        context=copilot_context,
         previous_messages=previous_messages,
     )
+    user_message.message_metadata = {
+        **user_message.message_metadata,
+        "included_context_size": result.included_context_size,
+    }
     assistant_message = AIMessage(
         organization_id=session.organization_id,
         session_id=session.id,
@@ -1084,9 +1153,30 @@ def ask_candidate_copilot(
         code_snapshot=None,
         ai_mode=ai_mode,
         ai_model=result.model,
-        message_metadata={"source": result.source},
+        message_metadata={
+            "source": result.source,
+            "suggested_files": result.suggested_files,
+            "risk_flags": result.risk_flags,
+            "confidence": result.confidence,
+        },
     )
     db.add(assistant_message)
+    now = _now_utc()
+    _create_event(
+        db,
+        session=session,
+        event_type=TelemetryEventType.AI_PROMPT_SENT,
+        payload={
+            "candidate_prompt": payload.question,
+            "included_context_size": result.included_context_size,
+            "current_file_path": current_file_path,
+            "ai_mode": ai_mode,
+            "response_confidence": result.confidence,
+            "timestamp": now.isoformat(),
+            "question_length": len(payload.question),
+            "code_snapshot_length": len(code_snapshot),
+        },
+    )
 
     try:
         db.commit()
@@ -1102,4 +1192,10 @@ def ask_candidate_copilot(
     return AICopilotResponse(
         user_message=AIMessageRead.model_validate(user_message),
         assistant_message=AIMessageRead.model_validate(assistant_message),
+        response=CopilotStructuredResponse(
+            answer=result.content,
+            suggested_files=result.suggested_files,
+            risk_flags=result.risk_flags,
+            confidence=result.confidence,
+        ),
     )
