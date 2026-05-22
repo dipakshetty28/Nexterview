@@ -1,6 +1,6 @@
 # Nexterview
 
-Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation and copilot responses, candidate invite/session access, and a candidate multi-file interview workspace with telemetry.
+Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation and copilot responses, candidate invite/session access, a candidate multi-file interview workspace with telemetry, and optional GitHub branch/commit/PR creation on final submission.
 
 ## Current Scope
 
@@ -19,6 +19,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `POST /api/interviews`
   - `GET /api/interviews`
   - `GET /api/interviews/{id}`
+  - `GET /api/interviews/{id}/submissions`
   - `DELETE /api/interviews/{id}`
   - `POST /api/interviews/{id}/invite`
   - `POST /api/interviews/{id}/generate-scenario`
@@ -37,7 +38,8 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - OpenAI Responses API integration on the backend with strict Pydantic JSON validation for generated repo projects
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate workspace with a nested file tree, snapshot autosave, markdown AI copilot, notes, run output, and final submit
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, and Monaco-powered candidate workspace with a nested file tree, pre-provisioned environment messaging, snapshot autosave, markdown AI copilot, notes, pass/fail run output, and final submit
+- Optional GitHub submission publisher that creates a branch, commits changed visible workspace files, optionally opens a pull request, and preserves database submissions when GitHub is not configured or push fails
 - Seed script with demo users and a sample generated interview scenario
 
 ## Architecture
@@ -74,6 +76,11 @@ FRONTEND_URL=http://localhost:3000
 BACKEND_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 CORS_ORIGINS=
 ENVIRONMENT=development
+GITHUB_TOKEN=
+GITHUB_OWNER=
+GITHUB_REPO=
+GITHUB_DEFAULT_BRANCH=main
+GITHUB_CREATE_PR=false
 ```
 
 Frontend variables:
@@ -85,6 +92,8 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 Do not use `change-me` secrets outside local development. `OPENAI_API_KEY` is read only by the backend; never add it to `frontend/.env` or expose it through `NEXT_PUBLIC_*` variables.
 
 `BACKEND_CORS_ORIGINS` is the production-ready CORS allowlist. Keep local browser origins in it for development, and set deployed frontend origins explicitly in production.
+
+GitHub submission publishing is optional. Leave `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPO` empty to store submitted files only in PostgreSQL. To enable branch pushes, set those values on the backend. The token should have access to the configured repository and permission to read repository contents, create branches, and write contents; if `GITHUB_CREATE_PR=true`, it also needs pull request write permission. The token is read only by the backend and must never be exposed through frontend environment variables.
 
 ## Local Setup
 
@@ -268,6 +277,15 @@ The AI generation response must be strict JSON shaped as `{ "scenario": ..., "pr
 
 The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Generated repo projects are stored as `scenario_projects` and `project_files`. When a candidate starts an interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a deterministic FastAPI orders project with an intentional quantity-calculation bug and a status-filter feature request.
 
+Read candidate submission results for an interview:
+
+```http
+GET /api/interviews/{id}/submissions
+Authorization: Bearer <interviewer_access_token>
+```
+
+The response includes each candidate session status plus final submission metadata when available: `branch_name`, `commit_sha`, `repository_url`, `pull_request_url`, `push_status`, and `push_error`. This endpoint is for `ADMIN` and `INTERVIEWER` users in the interview organization.
+
 Delete an interview:
 
 ```http
@@ -312,7 +330,7 @@ GET /api/sessions/{id}
 Authorization: Bearer <candidate_access_token>
 ```
 
-The session response includes the candidate-safe task scenario, visible generated project files, `latest_code`, `notes`, `last_autosaved_at`, `ai_messages`, and the final `submission` when one exists. Candidate endpoints do not include hidden rubrics, hidden evaluation points, interviewer rubrics, or hidden project files.
+The session response includes the candidate-safe task scenario, visible generated project files, `latest_code`, `notes`, `last_autosaved_at`, `ai_messages`, and the final `submission` when one exists. Candidate endpoints do not include hidden rubrics, hidden evaluation points, interviewer rubrics, hidden project files, or local install/run/test commands; candidates see a pre-provisioned workspace and use the platform Run button for pass/fail checks.
 
 Read the candidate workspace:
 
@@ -321,7 +339,7 @@ GET /api/sessions/{id}/workspace
 Authorization: Bearer <candidate_access_token>
 ```
 
-The workspace response includes project metadata and visible `session_file_snapshots`. File IDs in this response are session snapshot IDs, not immutable `project_files` IDs. Candidate edits update snapshots only; original generated project files remain unchanged.
+The workspace response includes project metadata and visible `session_file_snapshots`. File IDs in this response are session snapshot IDs, not immutable `project_files` IDs. Candidate edits update snapshots only; original generated project files remain unchanged. Internal runner commands remain backend-owned metadata and are returned as `null` in candidate workspace payloads.
 
 Autosave a workspace file:
 
@@ -369,7 +387,7 @@ Content-Type: application/json
 
 The copilot receives the generated scenario, visible workspace snapshot context when project files exist, the candidate question, previous `ai_messages`, and the interview's configured AI mode: `Hint Mode`, `Pair Programmer Mode`, `Senior Engineer Mode`, or `Debugging Assistant Mode`. The backend stores both the candidate prompt and the assistant response in `ai_messages` and records `ai_prompt_sent` telemetry. The OpenAI key stays backend-only; the frontend only calls Nexterview's API.
 
-Run the deterministic test simulation:
+Run the workspace checks:
 
 ```http
 POST /api/sessions/{id}/run-tests
@@ -381,7 +399,7 @@ Content-Type: application/json
 }
 ```
 
-For multi-file sessions, omit `code` or send `{}`. The backend runs deterministic simulated checks against the current visible workspace snapshots, changed files, bug/feature signals, validation files, and the generated project `test_command`.
+For multi-file sessions, omit `code` or send `{}`. The backend runs deterministic pass/fail workspace checks against the current visible workspace snapshots, changed files, bug/feature signals, validation files, and generated seed data. The candidate experience treats dependencies as already installed in the interview environment.
 
 Submit the final solution:
 
@@ -392,11 +410,11 @@ Content-Type: application/json
 
 {
   "notes": "Root cause and verification summary.",
-  "test_output": "7/7 simulated checks passed for `pytest` using `app/data/orders.json`."
+  "test_output": "7/7 workspace checks passed using `app/data/orders.json`."
 }
 ```
 
-For multi-file sessions, `code` and `submitted_files` are optional. If `submitted_files` is omitted and the session has file snapshots, the backend stores the current visible session snapshots as the submission. Single-file clients can continue sending `code`. Submission records also include reserved backend-owned fields for future GitHub branch, commit, repository, pull request, push status, and push error metadata.
+For multi-file sessions, `code` and `submitted_files` are optional. If `submitted_files` is omitted and the session has file snapshots, the backend stores the current visible session snapshots as the submission. Single-file clients can continue sending `code`. When GitHub is configured, the backend creates a branch named `interview-{interview_id}-session-{session_id}-{timestamp}`, commits changed visible workspace files, pushes the branch, and optionally creates a pull request. If GitHub is disabled or the push fails, the submission still succeeds and stores submitted files in PostgreSQL with `push_status` and a safe `push_error` when applicable. Hidden files, unsafe paths, environment files, and private key material are not committed.
 
 Candidate session statuses are `invited`, `started`, `submitted`, and `reviewed`. Candidates can only access sessions where they are the session owner. Submitted or reviewed sessions no longer accept code edits, note updates, test runs, or duplicate final submissions.
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import re
 from datetime import datetime
 from pathlib import PurePosixPath
 from uuid import UUID
@@ -16,6 +17,17 @@ class ProjectFileType(str, enum.Enum):
     DOCS = "docs"
     HIDDEN_TEST = "hidden_test"
     METADATA = "metadata"
+
+
+_CANDIDATE_CLI_COMMAND_RE = re.compile(
+    r"\b("
+    r"python\s+-m\s+pip\s+install|pip\s+install|uv\s+pip\s+install|poetry\s+install|"
+    r"npm\s+install|pnpm\s+install|yarn\s+install|bun\s+install|"
+    r"npm\s+run\s+(dev|start|test)|npm\s+test|pnpm\s+test|yarn\s+test|bun\s+test|"
+    r"pytest|vitest|uvicorn"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def _clean_project_path(value: str) -> str:
@@ -181,6 +193,20 @@ class AIGeneratedProjectEnvelope(BaseModel):
             raise ValueError("Generated projects must include README.md or TASK.md.")
         if not any(project_file.file_type == ProjectFileType.SOURCE for project_file in self.files):
             raise ValueError("Generated projects must include at least one source file.")
+        candidate_materials = [
+            self.scenario.validation_instructions,
+            self.scenario.candidate_instructions,
+            *[
+                project_file.content
+                for project_file in self.files
+                if not project_file.is_hidden and project_file.file_type == ProjectFileType.DOCS
+            ],
+        ]
+        if any(_CANDIDATE_CLI_COMMAND_RE.search(material) for material in candidate_materials):
+            raise ValueError(
+                "Candidate-facing task materials must describe the pre-provisioned workspace and platform Run button, "
+                "not local install, server, or test CLI commands."
+            )
         return self
 
 

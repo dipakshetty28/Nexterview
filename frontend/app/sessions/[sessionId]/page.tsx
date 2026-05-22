@@ -68,6 +68,13 @@ function formatSavedAt(value: string | null): string {
   }).format(new Date(value));
 }
 
+function branchUrl(submission: Submission): string | null {
+  if (!submission.repository_url || !submission.branch_name) {
+    return null;
+  }
+  return `${submission.repository_url}/tree/${encodeURIComponent(submission.branch_name)}`;
+}
+
 function languageForStack(stack: string[]): string {
   const joinedStack = stack.join(" ").toLowerCase();
   if (joinedStack.includes("python") || joinedStack.includes("fastapi")) {
@@ -595,7 +602,7 @@ function CandidateSessionContent() {
       setTestRun(result);
       setLastSavedAt(new Date().toISOString());
     } catch (requestError: unknown) {
-      const message = requestError instanceof ApiError ? requestError.message : "Unable to run simulated tests.";
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to run workspace checks.";
       setTestRunError(message);
     } finally {
       setIsRunningTests(false);
@@ -706,7 +713,7 @@ function CandidateSessionContent() {
               Saved {formatSavedAt(lastSavedAt)}
             </span>
             <Button disabled={isRunningTests || isSubmitted} onClick={() => void handleRunTests()} type="button">
-              {isRunningTests ? "Running..." : "Run tests"}
+              {isRunningTests ? "Running..." : "Run checks"}
             </Button>
             <Button
               disabled={
@@ -763,9 +770,9 @@ function CandidateSessionContent() {
                     </div>
                     {workspace?.project ? (
                       <div className="mt-3 grid gap-1 text-xs leading-5 text-slate-400">
-                        {workspace.project.install_command ? <span>Install: {workspace.project.install_command}</span> : null}
-                        {workspace.project.run_command ? <span>Run: {workspace.project.run_command}</span> : null}
-                        {workspace.project.test_command ? <span>Test: {workspace.project.test_command}</span> : null}
+                        <span>Environment ready</span>
+                        <span>Dependencies pre-installed</span>
+                        <span>Use Run checks for pass/fail feedback</span>
                       </div>
                     ) : null}
                   </div>
@@ -843,7 +850,7 @@ function CandidateSessionContent() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Button disabled={isRunningTests || isSubmitted} onClick={() => void handleRunTests()} type="button">
-                        {isRunningTests ? "Running..." : "Run"}
+                        {isRunningTests ? "Running..." : "Run checks"}
                       </Button>
                       <Button onClick={() => setIsRunPanelMinimized(false)} type="button" variant="secondary">
                         Show
@@ -855,11 +862,9 @@ function CandidateSessionContent() {
                 <div className="min-w-0">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">Run output</h3>
+                      <h3 className="text-sm font-semibold text-slate-100">Workspace checks</h3>
                       <p className="mt-1 text-xs text-slate-500">
-                        {workspace?.project?.test_command
-                          ? `Simulating ${workspace.project.test_command}`
-                          : "Simulating project validation"}
+                        Pre-provisioned environment, current files, visible tests, and seed data
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -880,7 +885,7 @@ function CandidateSessionContent() {
                         />
                       </label>
                       <Button disabled={isRunningTests || isSubmitted} onClick={() => void handleRunTests()} type="button">
-                        {isRunningTests ? "Running..." : "Run"}
+                        {isRunningTests ? "Running..." : "Run checks"}
                       </Button>
                       <Button onClick={() => setIsRunPanelMinimized(true)} type="button" variant="secondary">
                         Minimize
@@ -889,7 +894,7 @@ function CandidateSessionContent() {
                   </div>
                   {isRunningTests ? (
                     <div className="mt-3 rounded-md border border-cyan-900/70 bg-cyan-950/20 px-3 py-2 text-sm text-cyan-100">
-                      Running deterministic simulation against current files
+                      Checking the current workspace in the pre-provisioned environment
                       {testRunStartedAt ? `, started ${formatSavedAt(testRunStartedAt)}` : ""}.
                     </div>
                   ) : null}
@@ -917,7 +922,7 @@ function CandidateSessionContent() {
                     </div>
                   ) : !isRunningTests && !testRunError ? (
                     <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-400">
-                      Press Run to simulate the project with the current file snapshots, generated seed data, and validation rules.
+                      Press Run checks to see which workspace test cases pass or fail against your current file snapshots.
                     </div>
                   ) : null}
                 </div>
@@ -1041,8 +1046,35 @@ function CandidateSessionContent() {
                   value={notes}
                 />
                 {submission ? (
-                  <div className="mt-3 rounded-md border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
-                    Submitted at {formatSavedAt(submission.submitted_at)}.
+                  <div className="mt-3 grid gap-2 rounded-md border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
+                    <p>Submitted at {formatSavedAt(submission.submitted_at)}.</p>
+                    {submission.push_status === "pushed" ? (
+                      <div className="grid gap-1 text-emerald-100">
+                        {branchUrl(submission) ? (
+                          <a className="font-medium text-cyan-200 hover:text-cyan-100" href={branchUrl(submission) ?? ""}>
+                            Branch created: {submission.branch_name}
+                          </a>
+                        ) : (
+                          <p>Branch created: {submission.branch_name}</p>
+                        )}
+                        {submission.pull_request_url ? (
+                          <a className="font-medium text-cyan-200 hover:text-cyan-100" href={submission.pull_request_url}>
+                            Open pull request
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {submission.push_status === "not_configured" ? (
+                      <p className="text-emerald-100">GitHub push is disabled. Your submitted files were saved in Nexterview.</p>
+                    ) : null}
+                    {submission.push_status === "failed" ? (
+                      <p className="text-amber-200">
+                        GitHub push failed, but your submitted files were saved in Nexterview.
+                      </p>
+                    ) : null}
+                    {submission.push_status === "no_changes" ? (
+                      <p className="text-emerald-100">No changed files were detected for GitHub, so Nexterview saved the submission only.</p>
+                    ) : null}
                   </div>
                 ) : null}
               </section>

@@ -14,8 +14,9 @@ import {
   deleteInterview,
   generateScenario,
   getInterview,
+  getInterviewSubmissions,
 } from "@/lib/api";
-import type { Interview, ProjectFile, ScenarioProject } from "@/lib/types";
+import type { Interview, InterviewSubmissionResult, ProjectFile, ScenarioProject } from "@/lib/types";
 
 const DEFAULT_INVITE_EMAIL = "candidate@nexterview.dev";
 
@@ -40,9 +41,8 @@ function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
           </p>
         </div>
         <div className="grid gap-1 text-xs text-slate-400 md:text-right">
-          {project.install_command ? <span>Install: {project.install_command}</span> : null}
-          {project.run_command ? <span>Run: {project.run_command}</span> : null}
-          {project.test_command ? <span>Test: {project.test_command}</span> : null}
+          <span>Environment: pre-provisioned</span>
+          <span>Checks: pass/fail runner configured</span>
         </div>
       </div>
       <div className="grid gap-2">
@@ -65,11 +65,51 @@ function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
   );
 }
 
+function submissionBranchUrl(submission: InterviewSubmissionResult): string | null {
+  if (!submission.repository_url || !submission.branch_name) {
+    return null;
+  }
+  return `${submission.repository_url}/tree/${encodeURIComponent(submission.branch_name)}`;
+}
+
+function GitHubSubmissionLinks({ submission }: { submission: InterviewSubmissionResult }) {
+  const branchHref = submissionBranchUrl(submission);
+  if (!submission.submission_id) {
+    return <span className="text-slate-500">No submission yet</span>;
+  }
+  if (submission.push_status === "pushed") {
+    return (
+      <div className="grid gap-1">
+        {branchHref ? (
+          <a className="font-medium text-cyan-300 hover:text-cyan-200" href={branchHref}>
+            Branch: {submission.branch_name}
+          </a>
+        ) : (
+          <span>Branch: {submission.branch_name}</span>
+        )}
+        {submission.pull_request_url ? (
+          <a className="font-medium text-cyan-300 hover:text-cyan-200" href={submission.pull_request_url}>
+            Pull request
+          </a>
+        ) : null}
+      </div>
+    );
+  }
+  if (submission.push_status === "failed") {
+    return <span className="text-amber-300">GitHub push failed; database fallback saved.</span>;
+  }
+  if (submission.push_status === "no_changes") {
+    return <span className="text-slate-400">No changed files to push.</span>;
+  }
+  return <span className="text-slate-400">GitHub push disabled; database fallback saved.</span>;
+}
+
 function InterviewDetailContent() {
   const params = useParams<{ interviewId: string }>();
   const router = useRouter();
   const { token, user } = useAuth();
   const [interview, setInterview] = useState<Interview | null>(null);
+  const [submissions, setSubmissions] = useState<InterviewSubmissionResult[]>([]);
   const [inviteEmail, setInviteEmail] = useState(DEFAULT_INVITE_EMAIL);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -88,8 +128,11 @@ function InterviewDetailContent() {
 
     setIsLoading(true);
     setError(null);
-    getInterview(token, params.interviewId)
-      .then(setInterview)
+    Promise.all([getInterview(token, params.interviewId), getInterviewSubmissions(token, params.interviewId)])
+      .then(([loadedInterview, loadedSubmissions]) => {
+        setInterview(loadedInterview);
+        setSubmissions(loadedSubmissions);
+      })
       .catch((requestError: unknown) => {
         const message = requestError instanceof ApiError ? requestError.message : "Unable to load interview.";
         setError(message);
@@ -247,6 +290,42 @@ function InterviewDetailContent() {
                     <p className="text-xs text-slate-500">Generate the scenario first, then create the invite link.</p>
                   ) : null}
                 </div>
+              </div>
+            </section>
+
+            <section className="rounded-md border border-slate-800 bg-slate-900/60 p-5">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">Candidate submissions</h2>
+                  <p className="mt-1 text-sm text-slate-400">Branch and pull request links appear after final submit.</p>
+                </div>
+                <span className="text-xs uppercase tracking-wide text-slate-500">{submissions.length} sessions</span>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {submissions.length === 0 ? (
+                  <p className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-400">
+                    No candidate sessions yet.
+                  </p>
+                ) : (
+                  submissions.map((submission) => (
+                    <div
+                      className="grid gap-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-3 text-sm md:grid-cols-[minmax(0,1fr)_auto]"
+                      key={submission.session_id}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-100">{submission.candidate_name}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">{submission.candidate_email}</p>
+                        <p className="mt-2 text-xs text-slate-400">
+                          {submission.status}
+                          {submission.submitted_at ? ` / submitted ${new Date(submission.submitted_at).toLocaleString()}` : ""}
+                        </p>
+                      </div>
+                      <div className="min-w-0 md:min-w-72 md:text-right">
+                        <GitHubSubmissionLinks submission={submission} />
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </section>
 

@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.api.candidate import get_candidate_copilot
+from app.api.candidate import get_candidate_copilot, get_github_submission_publisher
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.base import Base
@@ -35,6 +35,7 @@ from app.models import (
     UserRole,
 )
 from app.services.copilot import CopilotResult
+from app.services.github import GitHubSubmissionPushResult
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -52,6 +53,15 @@ _ = (
     TelemetryEvent,
     User,
 )
+
+
+@pytest.fixture(autouse=True)
+def _disable_github_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "github_token", "")
+    monkeypatch.setattr(settings, "github_owner", "")
+    monkeypatch.setattr(settings, "github_repo", "")
+    monkeypatch.setattr(settings, "github_default_branch", "main")
+    monkeypatch.setattr(settings, "github_create_pr", False)
 
 
 @pytest.fixture()
@@ -143,6 +153,69 @@ def _create_ready_interview(client: TestClient, *, token: str) -> str:
     return interview_id
 
 
+def _start_workspace_session(client: TestClient, *, candidate_email: str) -> tuple[str, str, dict[str, object], dict[str, object]]:
+    admin_token = _register_admin(client)
+    _create_candidate(client, email=candidate_email, full_name="Workspace Candidate")
+    interview_id = _create_ready_interview(client, token=admin_token)
+    invite_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": candidate_email},
+    )
+    assert invite_response.status_code == 201
+    raw_invite_token = urlparse(invite_response.json()["invite_url"]).path.rsplit("/", 1)[-1]
+    candidate_login = client.post(
+        "/api/auth/login",
+        json={"email": candidate_email, "password": "StrongPass123!"},
+    )
+    assert candidate_login.status_code == 200
+    candidate_token = candidate_login.json()["access_token"]
+    start_response = client.post(
+        f"/api/invite/{raw_invite_token}/start",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert start_response.status_code == 200
+    session = start_response.json()
+    workspace_response = client.get(
+        f"/api/sessions/{session['id']}/workspace",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert workspace_response.status_code == 200
+    return admin_token, candidate_token, session, workspace_response.json()
+
+
+def _fix_order_workspace(client: TestClient, *, candidate_token: str, session_id: str, workspace: dict[str, object]) -> None:
+    files_by_path = {workspace_file["path"]: workspace_file for workspace_file in workspace["files"]}  # type: ignore[index]
+    service_file = files_by_path["app/services/orders.py"]
+    main_file = files_by_path["app/main.py"]
+    fixed_service = service_file["current_content"].replace(
+        'return round(sum(item["unit_price"] for item in order["items"]), 2)',
+        'return round(sum(item["unit_price"] * item["quantity"] for item in order["items"]), 2)',
+    )
+    service_update_response = client.put(
+        f"/api/sessions/{session_id}/files/{service_file['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"content": fixed_service},
+    )
+    assert service_update_response.status_code == 200
+
+    fixed_main = main_file["current_content"].replace(
+        "def list_orders() -> list[dict[str, object]]:\n"
+        "    return [summarize_order(order) for order in load_orders()]\n",
+        "def list_orders(status: str | None = None) -> list[dict[str, object]]:\n"
+        "    orders = load_orders()\n"
+        "    if status is not None:\n"
+        "        orders = [order for order in orders if order[\"status\"] == status]\n"
+        "    return [summarize_order(order) for order in orders]\n",
+    )
+    main_update_response = client.put(
+        f"/api/sessions/{session_id}/files/{main_file['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"content": fixed_main},
+    )
+    assert main_update_response.status_code == 200
+
+
 def test_interviewer_invites_candidate_and_candidate_starts_session(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -193,6 +266,11 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert "hidden_rubric" not in session["scenario"]
     assert "interviewer_rubric" not in session["scenario"]
     assert session["scenario"]["project"]["project_name"] == "orders-review-api"
+    assert session["scenario"]["project"]["install_command"] is None
+    assert session["scenario"]["project"]["run_command"] is None
+    assert session["scenario"]["project"]["test_command"] is None
+    assert "install" not in session["scenario"]["validation_instructions"].lower()
+    assert "pytest" not in session["scenario"]["validation_instructions"].lower()
     candidate_files = session["scenario"]["project"]["files"]
     assert candidate_files
     assert all(project_file["is_editable"] is True for project_file in candidate_files)
@@ -435,6 +513,9 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
     assert workspace_response.status_code == 200
     workspace = workspace_response.json()
     assert workspace["project"]["project_name"] == "orders-review-api"
+    assert workspace["project"]["install_command"] is None
+    assert workspace["project"]["run_command"] is None
+    assert workspace["project"]["test_command"] is None
     paths = {workspace_file["path"] for workspace_file in workspace["files"]}
     assert "app/main.py" in paths
     assert "app/services/orders.py" in paths
@@ -494,13 +575,13 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
     assert run_response.status_code == 200
     test_run = run_response.json()
     assert test_run["status"] == "passed"
-    assert "simulated checks passed for `pytest` using `app/data/orders.json`" in test_run["output"]
+    assert "workspace checks passed using `app/data/orders.json`" in test_run["output"]
     assert test_run["cases"][0]["name"] == "seed-data-loaded"
 
     submit_response = client.post(
         f"/api/sessions/{session['id']}/submit",
         headers={"Authorization": f"Bearer {candidate_token}"},
-        json={"notes": "Fixed totals, added status filtering, and ran the simulated checks.", "test_output": test_run["output"]},
+        json={"notes": "Fixed totals, added status filtering, and ran the workspace checks.", "test_output": test_run["output"]},
     )
     assert submit_response.status_code == 201
     submission = submit_response.json()
@@ -533,6 +614,144 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert delete_response.status_code == 204
+
+
+def test_candidate_submission_pushes_changed_files_to_github_when_configured(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token, candidate_token, session, workspace = _start_workspace_session(
+        client,
+        candidate_email="github-success@example.com",
+    )
+    _fix_order_workspace(client, candidate_token=candidate_token, session_id=session["id"], workspace=workspace)
+
+    class StubGitHubPublisher:
+        def publish_submission(self, **kwargs: object) -> GitHubSubmissionPushResult:
+            files = kwargs["files"]
+            assert isinstance(files, list)
+            paths = [file.path for file in files]
+            assert sorted(paths) == ["app/main.py", "app/services/orders.py"]
+            assert str(kwargs["interview_id"]) == session["interview_id"]
+            assert str(kwargs["session_id"]) == session["id"]
+            return GitHubSubmissionPushResult(
+                status="pushed",
+                branch_name="interview-branch",
+                commit_sha="abc123",
+                repository_url="https://github.com/example/repo",
+                pull_request_url="https://github.com/example/repo/pull/10",
+            )
+
+    app.dependency_overrides[get_github_submission_publisher] = lambda: StubGitHubPublisher()
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"notes": "Fixed and verified.", "test_output": "Workspace checks passed."},
+    )
+    assert submit_response.status_code == 201
+    submission = submit_response.json()
+    assert submission["push_status"] == "pushed"
+    assert submission["branch_name"] == "interview-branch"
+    assert submission["commit_sha"] == "abc123"
+    assert submission["pull_request_url"] == "https://github.com/example/repo/pull/10"
+
+    results_response = client.get(
+        f"/api/interviews/{session['interview_id']}/submissions",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert results_response.status_code == 200
+    results = results_response.json()
+    assert results[0]["push_status"] == "pushed"
+    assert results[0]["branch_name"] == "interview-branch"
+    assert results[0]["pull_request_url"] == "https://github.com/example/repo/pull/10"
+
+
+def test_candidate_submission_falls_back_when_github_is_not_configured(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    _, candidate_token, session, workspace = _start_workspace_session(
+        client,
+        candidate_email="github-disabled@example.com",
+    )
+    _fix_order_workspace(client, candidate_token=candidate_token, session_id=session["id"], workspace=workspace)
+
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"notes": "Fixed and verified.", "test_output": "Workspace checks passed."},
+    )
+    assert submit_response.status_code == 201
+    submission = submit_response.json()
+    assert submission["push_status"] == "not_configured"
+    assert submission["branch_name"] is None
+    assert submission["commit_sha"] is None
+    assert submission["submitted_files"]
+
+
+def test_candidate_submission_records_failed_github_push_without_failing_submission(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    _, candidate_token, session, workspace = _start_workspace_session(
+        client,
+        candidate_email="github-failed@example.com",
+    )
+    _fix_order_workspace(client, candidate_token=candidate_token, session_id=session["id"], workspace=workspace)
+
+    class FailingGitHubPublisher:
+        def publish_submission(self, **_: object) -> GitHubSubmissionPushResult:
+            return GitHubSubmissionPushResult(
+                status="failed",
+                branch_name="interview-branch",
+                repository_url="https://github.com/example/repo",
+                error="GitHub returned HTTP 403: Resource not accessible by integration.",
+            )
+
+    app.dependency_overrides[get_github_submission_publisher] = lambda: FailingGitHubPublisher()
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"notes": "Fixed and verified.", "test_output": "Workspace checks passed."},
+    )
+    assert submit_response.status_code == 201
+    submission = submit_response.json()
+    assert submission["push_status"] == "failed"
+    assert submission["branch_name"] == "interview-branch"
+    assert "HTTP 403" in submission["push_error"]
+    assert submission["submitted_files"]
+
+
+def test_candidate_submission_rejects_unsafe_submitted_file_path(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    _, candidate_token, session, _ = _start_workspace_session(
+        client,
+        candidate_email="unsafe-path@example.com",
+    )
+
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={
+            "notes": "Trying to submit an unsafe file.",
+            "submitted_files": [{"path": ".env", "content": "GITHUB_TOKEN=secret", "language": "text"}],
+        },
+    )
+    assert submit_response.status_code == 422
+    assert "environment files" in submit_response.json()["detail"]
+
+    session_response = client.get(
+        f"/api/sessions/{session['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert session_response.status_code == 200
+    assert session_response.json()["status"] == "started"
 
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

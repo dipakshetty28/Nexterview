@@ -96,9 +96,8 @@ function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
           </p>
         </div>
         <div className="grid gap-1 text-xs text-slate-400 md:text-right">
-          {project.install_command ? <span>Install: {project.install_command}</span> : null}
-          {project.run_command ? <span>Run: {project.run_command}</span> : null}
-          {project.test_command ? <span>Test: {project.test_command}</span> : null}
+          <span>Environment: pre-provisioned</span>
+          <span>Checks: pass/fail runner configured</span>
         </div>
       </div>
       <div className="grid gap-2">

@@ -12,11 +12,19 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import require_roles
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.interview import Interview, InterviewSession, InterviewSessionStatus, InviteToken, Scenario, ScenarioProject
+from app.models.interview import (
+    Interview,
+    InterviewSession,
+    InterviewSessionStatus,
+    InviteToken,
+    Scenario,
+    ScenarioProject,
+    Submission,
+)
 from app.models.organization import OrganizationMember
 from app.models.user import User, UserRole
 from app.schemas.invite import InviteCreateRequest, InviteTokenRead
-from app.schemas.interview import InterviewCreateRequest, InterviewRead
+from app.schemas.interview import InterviewCreateRequest, InterviewRead, InterviewSubmissionResultRead
 from app.schemas.scenario import ScenarioRead
 from app.services.invites import generate_invite_token, hash_invite_token
 from app.services.scenario_projects import upsert_scenario_project
@@ -199,6 +207,53 @@ def get_interview(
     db: Annotated[Session, Depends(get_db)],
 ) -> InterviewRead:
     return InterviewRead.model_validate(_get_interview_for_user(db, interview_id, current_user))
+
+
+@router.get("/{interview_id}/submissions", response_model=list[InterviewSubmissionResultRead])
+def list_interview_submissions(
+    interview_id: UUID,
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[InterviewSubmissionResultRead]:
+    interview = _get_interview_for_user(db, interview_id, current_user)
+    try:
+        rows = db.execute(
+            select(InterviewSession, User, Submission)
+            .join(User, User.id == InterviewSession.candidate_id)
+            .outerjoin(Submission, Submission.session_id == InterviewSession.id)
+            .where(InterviewSession.interview_id == interview.id)
+            .order_by(InterviewSession.created_at.desc())
+        ).all()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load interview submissions.",
+        ) from exc
+
+    return [
+        InterviewSubmissionResultRead(
+            session_id=session.id,
+            candidate_id=session.candidate_id,
+            candidate_email=candidate.email,
+            candidate_name=candidate.full_name,
+            status=session.status.value,
+            submitted_at=session.submitted_at,
+            submission_id=submission.id if submission else None,
+            branch_name=submission.branch_name if submission else None,
+            commit_sha=submission.commit_sha if submission else None,
+            repository_url=submission.repository_url if submission else None,
+            pull_request_url=submission.pull_request_url if submission else None,
+            push_status=submission.push_status if submission else None,
+            push_error=submission.push_error if submission else None,
+            test_output=submission.test_output if submission else None,
+            notes=submission.notes if submission else session.notes,
+        )
+        for session, candidate, submission in rows
+    ]
 
 
 @router.delete("/{interview_id}", status_code=status.HTTP_204_NO_CONTENT)

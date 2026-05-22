@@ -184,7 +184,7 @@ def _fallback_reply(*, session: InterviewSession, question: str, code: str, mode
             f"Focus first on the main failure mode in **{title}**.\n\n"
             f"- Start from this requirement: {primary_requirement}\n"
             f"- Compare the logs against the {code_hint} and name the state that should stay stable across retries or repeated calls.\n"
-            "- Make one small change, then run the simulated tests and explain why the result proves the fix."
+            "- Make one small change, then use the workspace Run button and explain why the pass/fail result proves the fix."
         )
 
     if mode == "Debugging Assistant Mode":

@@ -136,6 +136,24 @@ export type Interview = {
   scenario: Scenario | null;
 };
 
+export type InterviewSubmissionResult = {
+  session_id: string;
+  candidate_id: string;
+  candidate_email: string;
+  candidate_name: string;
+  status: "invited" | "started" | "submitted" | "reviewed";
+  submitted_at: string | null;
+  submission_id: string | null;
+  branch_name: string | null;
+  commit_sha: string | null;
+  repository_url: string | null;
+  pull_request_url: string | null;
+  push_status: string | null;
+  push_error: string | null;
+  test_output: string | null;
+  notes: string | null;
+};
+
 export type InterviewCreateInput = {
   role_title: string;
   seniority: string;

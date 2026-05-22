@@ -6,6 +6,7 @@ import type {
   DashboardResponse,
   Interview,
   InterviewCreateInput,
+  InterviewSubmissionResult,
   InviteTokenResponse,
   PublicInvite,
   Scenario,
@@ -114,6 +115,10 @@ export function createInterview(token: string, input: InterviewCreateInput): Pro
 
 export function getInterview(token: string, interviewId: string): Promise<Interview> {
   return apiRequest<Interview>(`/api/interviews/${interviewId}`, { token });
+}
+
+export function getInterviewSubmissions(token: string, interviewId: string): Promise<InterviewSubmissionResult[]> {
+  return apiRequest<InterviewSubmissionResult[]>(`/api/interviews/${interviewId}/submissions`, { token });
 }
 
 export function deleteInterview(token: string, interviewId: string): Promise<void> {

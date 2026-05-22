@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
@@ -54,14 +55,47 @@ from app.schemas.project import (
     CandidateWorkspaceRead,
 )
 from app.services.copilot import CandidateCopilot
+from app.services.github import (
+    GitHubSubmissionFile,
+    GitHubSubmissionPublisher,
+    UnsafeRepositoryFileError,
+    validate_repository_file,
+)
 from app.services.invites import hash_invite_token
 from app.services.scenario_projects import ensure_session_file_snapshots
 
 router = APIRouter(prefix="/api", tags=["candidate"])
 
 
+_CANDIDATE_CLI_COMMAND_RE = re.compile(
+    r"\b("
+    r"python\s+-m\s+pip\s+install|pip\s+install|uv\s+pip\s+install|poetry\s+install|"
+    r"npm\s+install|pnpm\s+install|yarn\s+install|bun\s+install|"
+    r"npm\s+run\s+(dev|start|test)|npm\s+test|pnpm\s+test|yarn\s+test|bun\s+test|"
+    r"pytest|vitest|uvicorn"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_READY_ENVIRONMENT_VALIDATION = (
+    "Use the Run button in Nexterview to execute the pre-provisioned workspace checks against the current files "
+    "and seed data. Review each pass/fail case, fix failing behavior, and summarize your verification before "
+    "submitting."
+)
+
+_READY_ENVIRONMENT_DOC = (
+    "# Workspace\n\n"
+    "The interview environment is already provisioned. Edit the project files, use the Nexterview Run button to "
+    "execute the visible checks, and summarize the root cause plus verification before submitting.\n"
+)
+
+
 def get_candidate_copilot() -> CandidateCopilot:
     return CandidateCopilot()
+
+
+def get_github_submission_publisher() -> GitHubSubmissionPublisher:
+    return GitHubSubmissionPublisher()
 
 
 def _now_utc() -> datetime:
@@ -140,6 +174,34 @@ def _session_response(session: InterviewSession) -> InterviewSessionRead:
     )
 
 
+def _candidate_validation_instructions(raw_text: str) -> str:
+    if _CANDIDATE_CLI_COMMAND_RE.search(raw_text):
+        return _READY_ENVIRONMENT_VALIDATION
+    if "run button" in raw_text.lower():
+        return raw_text
+    return f"{_READY_ENVIRONMENT_VALIDATION} {raw_text}".strip()
+
+
+def _candidate_visible_file_content(*, path: str, file_type: str, content: str) -> str:
+    if file_type == "docs" and _CANDIDATE_CLI_COMMAND_RE.search(content):
+        return _READY_ENVIRONMENT_DOC
+    return content
+
+
+def _candidate_project_file_response(project_file: ProjectFile) -> CandidateProjectFileRead:
+    return CandidateProjectFileRead(
+        path=project_file.path,
+        content=_candidate_visible_file_content(
+            path=project_file.path,
+            file_type=project_file.file_type,
+            content=project_file.content,
+        ),
+        language=project_file.language,
+        file_type=project_file.file_type,
+        is_editable=project_file.is_editable,
+    )
+
+
 def _candidate_scenario_response(scenario: Scenario | None) -> CandidateScenarioRead:
     if scenario is None:
         raise HTTPException(
@@ -150,7 +212,7 @@ def _candidate_scenario_response(scenario: Scenario | None) -> CandidateScenario
     project = None
     if scenario.project is not None:
         visible_files = [
-            CandidateProjectFileRead.model_validate(project_file)
+            _candidate_project_file_response(project_file)
             for project_file in sorted(scenario.project.files, key=lambda project_file: project_file.path)
             if not project_file.is_hidden
         ]
@@ -159,9 +221,9 @@ def _candidate_scenario_response(scenario: Scenario | None) -> CandidateScenario
             stack=scenario.project.stack,
             framework=scenario.project.framework,
             package_manager=scenario.project.package_manager,
-            install_command=scenario.project.install_command,
-            run_command=scenario.project.run_command,
-            test_command=scenario.project.test_command,
+            install_command=None,
+            run_command=None,
+            test_command=None,
             entrypoint=scenario.project.entrypoint,
             files=visible_files,
         )
@@ -176,7 +238,7 @@ def _candidate_scenario_response(scenario: Scenario | None) -> CandidateScenario
         logs_or_bug_report=scenario.logs_or_bug_report,
         bug_description=scenario.bug_description,
         feature_request=scenario.feature_request,
-        validation_instructions=scenario.validation_instructions,
+        validation_instructions=_candidate_validation_instructions(scenario.validation_instructions),
         candidate_task_summary=scenario.candidate_task_summary,
         candidate_instructions=scenario.candidate_instructions,
         project=project,
@@ -258,6 +320,29 @@ def _submitted_files_from_session_snapshots(db: Session, *, session: InterviewSe
     ]
 
 
+def _validate_submitted_files(submitted_files: list[dict[str, object]]) -> None:
+    for submitted_file in submitted_files:
+        path = submitted_file.get("path")
+        content = submitted_file.get("content")
+        if not isinstance(path, str) or not isinstance(content, str):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Submitted files must include string path and content fields.",
+            )
+        try:
+            validate_repository_file(path, content)
+        except UnsafeRepositoryFileError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+def _github_files_from_changed_snapshots(snapshots: list[SessionFileSnapshot]) -> list[GitHubSubmissionFile]:
+    return [
+        GitHubSubmissionFile(path=snapshot.path, content=snapshot.current_content)
+        for snapshot in snapshots
+        if snapshot.current_content != snapshot.original_content
+    ]
+
+
 def _visible_session_snapshots(db: Session, *, session: InterviewSession) -> list[SessionFileSnapshot]:
     ensure_session_file_snapshots(db, session=session)
     return list(
@@ -278,8 +363,16 @@ def _workspace_file_response(snapshot: SessionFileSnapshot) -> CandidateWorkspac
         id=snapshot.id,
         project_file_id=snapshot.project_file_id,
         path=snapshot.path,
-        original_content=snapshot.original_content,
-        current_content=snapshot.current_content,
+        original_content=_candidate_visible_file_content(
+            path=snapshot.path,
+            file_type=project_file.file_type,
+            content=snapshot.original_content,
+        ),
+        current_content=_candidate_visible_file_content(
+            path=snapshot.path,
+            file_type=project_file.file_type,
+            content=snapshot.current_content,
+        ),
         language=snapshot.language,
         file_type=project_file.file_type,
         is_editable=project_file.is_editable,
@@ -300,7 +393,18 @@ def _workspace_response(db: Session, *, session: InterviewSession) -> CandidateW
     snapshots = _visible_session_snapshots(db, session=session)
     return CandidateWorkspaceRead(
         session_id=session.id,
-        project=CandidateWorkspaceProjectRead.model_validate(scenario.project),
+        project=CandidateWorkspaceProjectRead(
+            id=scenario.project.id,
+            project_name=scenario.project.project_name,
+            stack=scenario.project.stack,
+            description=scenario.project.description,
+            framework=scenario.project.framework,
+            package_manager=scenario.project.package_manager,
+            install_command=None,
+            run_command=None,
+            test_command=None,
+            entrypoint=scenario.project.entrypoint,
+        ),
         files=[_workspace_file_response(snapshot) for snapshot in snapshots],
         last_autosaved_at=session.last_autosaved_at,
     )
@@ -417,7 +521,7 @@ def _simulate_test_run(session: InterviewSession, code: str) -> TestRunResult:
     ]
     passed_count = sum(1 for case in cases if case.status == "passed")
     run_status = "passed" if passed_count == len(cases) else "failed"
-    output = f"{passed_count}/{len(cases)} simulated checks passed."
+    output = f"{passed_count}/{len(cases)} workspace checks passed."
     return TestRunResult(status=run_status, output=output, cases=cases)
 
 
@@ -570,20 +674,19 @@ def _simulate_workspace_test_run(
             ),
         ),
         TestCaseResult(
-            name="runnable-command-known",
+            name="preprovisioned-test-runner",
             status="passed" if project and project.test_command else "failed",
             details=(
-                f"Simulation is based on `{project.test_command}`."
+                "Workspace checks are configured for this pre-provisioned interview environment."
                 if project and project.test_command
-                else "The project does not define a test command."
+                else "The project does not define a workspace check runner."
             ),
         ),
     ]
     passed_count = sum(1 for case in cases if case.status == "passed")
     run_status = "passed" if passed_count == len(cases) else "failed"
-    command = project.test_command if project and project.test_command else "project validation"
     seed_note = f" using `{seed_path}`" if seed_path else ""
-    output = f"{passed_count}/{len(cases)} simulated checks passed for `{command}`{seed_note}."
+    output = f"{passed_count}/{len(cases)} workspace checks passed{seed_note}."
     return TestRunResult(status=run_status, output=output, cases=cases)
 
 
@@ -849,6 +952,7 @@ def submit_session_solution(
     payload: SubmissionCreate,
     current_user: Annotated[User, Depends(require_roles(UserRole.CANDIDATE))],
     db: Annotated[Session, Depends(get_db)],
+    github_publisher: Annotated[GitHubSubmissionPublisher, Depends(get_github_submission_publisher)],
 ) -> SubmissionRead:
     session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
     _ensure_session_accepts_work(session)
@@ -858,7 +962,18 @@ def submit_session_solution(
         [submitted_file.model_dump() for submitted_file in payload.submitted_files]
         or _submitted_files_from_session_snapshots(db, session=session)
     )
+    _validate_submitted_files(submitted_files)
     code = payload.code or _primary_code_from_snapshots(db, session=session)
+    try:
+        github_result = github_publisher.publish_submission(
+            interview_id=session.interview_id,
+            session_id=session.id,
+            submitted_at=now,
+            files=_github_files_from_changed_snapshots(visible_snapshots),
+            candidate_notes=payload.notes,
+        )
+    except UnsafeRepositoryFileError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     submission = Submission(
         organization_id=session.organization_id,
         session_id=session.id,
@@ -867,7 +982,12 @@ def submit_session_solution(
         notes=payload.notes,
         test_output=payload.test_output,
         submitted_files=submitted_files,
-        push_status="not_configured",
+        branch_name=github_result.branch_name,
+        commit_sha=github_result.commit_sha,
+        repository_url=github_result.repository_url,
+        pull_request_url=github_result.pull_request_url,
+        push_status=github_result.status,
+        push_error=github_result.error,
         submitted_at=now,
     )
     db.add(submission)

@@ -14,7 +14,7 @@ from app.schemas.invite import (
     TestRunRequest,
     TestRunResult,
 )
-from app.schemas.interview import InterviewCreateRequest, InterviewRead
+from app.schemas.interview import InterviewCreateRequest, InterviewRead, InterviewSubmissionResultRead
 from app.schemas.project import (
     AIGeneratedProjectEnvelope,
     AIGeneratedProjectMetadata,
@@ -53,6 +53,7 @@ __all__ = [
     "GeneratedScenarioProject",
     "InterviewCreateRequest",
     "InterviewRead",
+    "InterviewSubmissionResultRead",
     "InterviewSessionRead",
     "InviteCreateRequest",
     "InviteTokenRead",
