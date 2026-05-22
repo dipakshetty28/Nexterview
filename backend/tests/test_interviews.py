@@ -310,6 +310,15 @@ def test_create_interview_and_generate_scenario_with_mocked_ai_service(client: T
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
 
+    delete_response = client.delete(f"/api/interviews/{interview['id']}", headers=headers)
+    assert delete_response.status_code == 204
+
+    deleted_detail_response = client.get(f"/api/interviews/{interview['id']}", headers=headers)
+    assert deleted_detail_response.status_code == 404
+    deleted_list_response = client.get("/api/interviews", headers=headers)
+    assert deleted_list_response.status_code == 200
+    assert deleted_list_response.json() == []
+
 
 def test_scenario_generator_parses_mocked_ai_project_json(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "test-key")

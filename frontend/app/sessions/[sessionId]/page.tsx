@@ -333,6 +333,10 @@ function CandidateSessionContent() {
   const [copilotQuestion, setCopilotQuestion] = useState("");
   const [isAskingCopilot, setIsAskingCopilot] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
+  const [isRunPanelMinimized, setIsRunPanelMinimized] = useState(false);
+  const [runPanelHeight, setRunPanelHeight] = useState(220);
   const legacyCodeSaveTimer = useRef<number | null>(null);
   const noteSaveTimer = useRef<number | null>(null);
   const fileSaveTimers = useRef<Record<string, number>>({});
@@ -347,6 +351,16 @@ function CandidateSessionContent() {
     ? fileContents[selectedFile.id] ?? selectedFile.current_content
     : legacyCode;
   const isSubmitted = session?.status === "submitted" || session?.status === "reviewed";
+  const workspaceGridClass = isLeftPanelCollapsed
+    ? isRightPanelCollapsed
+      ? "xl:grid-cols-[48px_minmax(0,1fr)_48px]"
+      : "xl:grid-cols-[48px_minmax(0,1fr)_380px]"
+    : isRightPanelCollapsed
+      ? "xl:grid-cols-[280px_minmax(0,1fr)_48px]"
+      : "xl:grid-cols-[280px_minmax(0,1fr)_380px]";
+  const editorRows = isRunPanelMinimized
+    ? "auto minmax(0,1fr) 56px"
+    : `auto minmax(0,1fr) ${runPanelHeight}px`;
 
   useEffect(() => {
     if (!token || !params.sessionId) {
@@ -709,7 +723,7 @@ function CandidateSessionContent() {
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-[1800px] gap-4 px-4 py-4 xl:h-[calc(100vh-94px)] xl:grid-cols-[280px_minmax(0,1fr)_380px]">
+      <section className={`mx-auto grid max-w-[1800px] gap-4 px-4 py-4 xl:h-[calc(100vh-94px)] ${workspaceGridClass}`}>
         {isLoading ? (
           <div className="xl:col-span-3 rounded-md border border-slate-800 bg-slate-900/70 p-6 text-slate-300">
             Loading interview workspace...
@@ -725,41 +739,63 @@ function CandidateSessionContent() {
         {session ? (
           <>
             <aside className="min-h-0 overflow-hidden rounded-md border border-slate-800 bg-slate-900/70">
-              <div className="border-b border-slate-800 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Workspace</p>
-                <h2 className="mt-1 truncate text-sm font-semibold text-slate-100">
-                  {workspace?.project?.project_name ?? "Single-file task"}
-                </h2>
-                {workspace?.project ? (
-                  <div className="mt-3 grid gap-1 text-xs leading-5 text-slate-400">
-                    {workspace.project.install_command ? <span>Install: {workspace.project.install_command}</span> : null}
-                    {workspace.project.run_command ? <span>Run: {workspace.project.run_command}</span> : null}
-                    {workspace.project.test_command ? <span>Test: {workspace.project.test_command}</span> : null}
+              {isLeftPanelCollapsed ? (
+                <button
+                  className="flex h-full min-h-16 w-full items-start justify-center px-2 py-4 text-xs font-semibold text-slate-300 hover:bg-slate-900"
+                  onClick={() => setIsLeftPanelCollapsed(false)}
+                  type="button"
+                >
+                  Files
+                </button>
+              ) : (
+                <>
+                  <div className="border-b border-slate-800 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Workspace</p>
+                        <h2 className="mt-1 truncate text-sm font-semibold text-slate-100">
+                          {workspace?.project?.project_name ?? "Single-file task"}
+                        </h2>
+                      </div>
+                      <Button onClick={() => setIsLeftPanelCollapsed(true)} type="button" variant="secondary">
+                        Hide
+                      </Button>
+                    </div>
+                    {workspace?.project ? (
+                      <div className="mt-3 grid gap-1 text-xs leading-5 text-slate-400">
+                        {workspace.project.install_command ? <span>Install: {workspace.project.install_command}</span> : null}
+                        {workspace.project.run_command ? <span>Run: {workspace.project.run_command}</span> : null}
+                        {workspace.project.test_command ? <span>Test: {workspace.project.test_command}</span> : null}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-              <div className="max-h-[42rem] overflow-auto p-2 xl:max-h-none">
-                {hasWorkspace ? (
-                  <FileTree
-                    dirtyFileIds={dirtyFileIds}
-                    files={workspaceFiles}
-                    onSelect={handleSelectFile}
-                    savingFileIds={savingFileIds}
-                    selectedFileId={selectedFileId}
-                  />
-                ) : (
-                  <button
-                    className="w-full rounded-md bg-cyan-950/70 px-2 py-2 text-left text-xs text-cyan-100"
-                    onClick={() => setSelectedFileId(null)}
-                    type="button"
-                  >
-                    starter-code.{languageForStack(session.interview.stack)}
-                  </button>
-                )}
-              </div>
+                  <div className="max-h-[42rem] overflow-auto p-2 xl:max-h-none">
+                    {hasWorkspace ? (
+                      <FileTree
+                        dirtyFileIds={dirtyFileIds}
+                        files={workspaceFiles}
+                        onSelect={handleSelectFile}
+                        savingFileIds={savingFileIds}
+                        selectedFileId={selectedFileId}
+                      />
+                    ) : (
+                      <button
+                        className="w-full rounded-md bg-cyan-950/70 px-2 py-2 text-left text-xs text-cyan-100"
+                        onClick={() => setSelectedFileId(null)}
+                        type="button"
+                      >
+                        starter-code.{languageForStack(session.interview.stack)}
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </aside>
 
-            <section className="grid min-h-[760px] grid-rows-[auto_minmax(360px,1fr)_minmax(260px,auto)] overflow-hidden rounded-md border border-slate-800 bg-slate-900/70 xl:min-h-0 xl:grid-rows-[auto_minmax(0,1fr)_minmax(260px,320px)]">
+            <section
+              className="grid min-h-[760px] overflow-hidden rounded-md border border-slate-800 bg-slate-900/70 xl:min-h-0"
+              style={{ gridTemplateRows: editorRows }}
+            >
               <div className="flex flex-col gap-3 border-b border-slate-800 p-4 md:flex-row md:items-center md:justify-between">
                 <div className="min-w-0">
                   <p className="text-xs uppercase tracking-wide text-slate-500">Editor</p>
@@ -797,7 +833,25 @@ function CandidateSessionContent() {
                 />
               </div>
               <section className="min-h-0 overflow-hidden border-t border-slate-800 bg-slate-950/70">
-                <div className="grid h-full gap-4 overflow-auto p-4 lg:grid-cols-2">
+                {isRunPanelMinimized ? (
+                  <div className="flex h-full items-center justify-between gap-3 px-4 py-2">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold text-slate-100">Run output</h3>
+                      <p className="truncate text-xs text-slate-500">
+                        {testRun ? testRun.output : "Panel minimized"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button disabled={isRunningTests || isSubmitted} onClick={() => void handleRunTests()} type="button">
+                        {isRunningTests ? "Running..." : "Run"}
+                      </Button>
+                      <Button onClick={() => setIsRunPanelMinimized(false)} type="button" variant="secondary">
+                        Show
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid h-full gap-4 overflow-auto p-4 lg:grid-cols-2">
                 <div className="min-w-0">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -814,8 +868,22 @@ function CandidateSessionContent() {
                           {testRun.status}
                         </span>
                       ) : null}
+                      <label className="hidden items-center gap-2 text-xs text-slate-500 sm:flex">
+                        <span>Height</span>
+                        <input
+                          className="h-1 w-24 accent-cyan-400"
+                          max={420}
+                          min={160}
+                          onChange={(event) => setRunPanelHeight(Number(event.target.value))}
+                          type="range"
+                          value={runPanelHeight}
+                        />
+                      </label>
                       <Button disabled={isRunningTests || isSubmitted} onClick={() => void handleRunTests()} type="button">
                         {isRunningTests ? "Running..." : "Run"}
+                      </Button>
+                      <Button onClick={() => setIsRunPanelMinimized(true)} type="button" variant="secondary">
+                        Minimize
                       </Button>
                     </div>
                   </div>
@@ -860,13 +928,29 @@ function CandidateSessionContent() {
                   </p>
                 </div>
                 </div>
+                )}
               </section>
             </section>
 
             <aside className="grid min-h-0 gap-4 xl:grid-rows-[minmax(0,1fr)_auto]">
+              {isRightPanelCollapsed ? (
+                <button
+                  className="flex h-full min-h-16 w-full items-start justify-center rounded-md border border-slate-800 bg-slate-900/70 px-2 py-4 text-xs font-semibold text-slate-300 hover:bg-slate-900"
+                  onClick={() => setIsRightPanelCollapsed(false)}
+                  type="button"
+                >
+                  Task
+                </button>
+              ) : (
+                <>
               <div className="grid min-h-0 gap-4 overflow-auto pr-1">
                 <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Task</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Task</p>
+                    <Button onClick={() => setIsRightPanelCollapsed(true)} type="button" variant="secondary">
+                      Hide
+                    </Button>
+                  </div>
                   <h2 className="mt-2 text-lg font-semibold">{session.interview.role_title}</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-300">{session.scenario.candidate_task_summary}</p>
                   <p className="mt-3 text-sm leading-6 text-slate-400">{session.scenario.business_context}</p>
@@ -962,6 +1046,8 @@ function CandidateSessionContent() {
                   </div>
                 ) : null}
               </section>
+                </>
+              )}
             </aside>
           </>
         ) : null}

@@ -19,6 +19,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `POST /api/interviews`
   - `GET /api/interviews`
   - `GET /api/interviews/{id}`
+  - `DELETE /api/interviews/{id}`
   - `POST /api/interviews/{id}/invite`
   - `POST /api/interviews/{id}/generate-scenario`
 - Candidate invite/session endpoints:
@@ -174,7 +175,7 @@ Accounts:
 Demo invite flow:
 
 1. Log in as `admin@nexterview.dev` or `interviewer@nexterview.dev`.
-2. Open `/interviews`, enter `candidate@nexterview.dev`, and generate an invite link.
+2. Open `/interviews`, generate a scenario, open the interview detail page, enter `candidate@nexterview.dev`, and generate an invite link.
 3. Open the invite link, log in as `candidate@nexterview.dev`, and start the interview.
 4. The candidate lands on `/sessions/{id}` with task context, a nested project file tree, Monaco editor, notes, timer, AI copilot, test simulation, autosave, and final submit.
 
@@ -266,6 +267,15 @@ The response includes:
 The AI generation response must be strict JSON shaped as `{ "scenario": ..., "project": ..., "files": [...] }`. The backend validates that payload with Pydantic, requires 5 to 12 files, requires a JSON seed data file, requires a test or validation file, and requires `README.md` or `TASK.md`. Supported generation targets are React + Next.js, Python + FastAPI, and Node.js + Express; unknown stacks fall back to a generic TypeScript/Node prompt.
 
 The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Generated repo projects are stored as `scenario_projects` and `project_files`. When a candidate starts an interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a deterministic FastAPI orders project with an intentional quantity-calculation bug and a status-filter feature request.
+
+Delete an interview:
+
+```http
+DELETE /api/interviews/{id}
+Authorization: Bearer <interviewer_access_token>
+```
+
+Deleting an interview cascades through its generated scenario, project files, invite tokens, candidate sessions, workspace snapshots, telemetry, AI messages, and submissions.
 
 Generate a candidate invite link:
 
@@ -450,6 +460,13 @@ Interview scenario smoke test:
 ```bash
 curl -X POST http://localhost:8000/api/interviews/<interview_id>/generate-scenario \
   -H "Authorization: Bearer <access_token>"
+```
+
+Interview delete smoke test:
+
+```bash
+curl -X DELETE http://localhost:8000/api/interviews/<interview_id> \
+  -H "Authorization: Bearer <interviewer_access_token>"
 ```
 
 Candidate invite smoke test:

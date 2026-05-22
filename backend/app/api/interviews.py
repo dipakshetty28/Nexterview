@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import delete, select
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -199,6 +199,28 @@ def get_interview(
     db: Annotated[Session, Depends(get_db)],
 ) -> InterviewRead:
     return InterviewRead.model_validate(_get_interview_for_user(db, interview_id, current_user))
+
+
+@router.delete("/{interview_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_interview(
+    interview_id: UUID,
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    interview = _get_interview_for_user(db, interview_id, current_user)
+    db.execute(delete(Interview).where(Interview.id == interview.id).execution_options(synchronize_session=False))
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete interview.",
+        ) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{interview_id}/invite", response_model=InviteTokenRead, status_code=status.HTTP_201_CREATED)

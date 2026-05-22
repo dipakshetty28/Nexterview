@@ -528,6 +528,12 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
     assert TelemetryEventType.TEST_RUN in event_types
     assert TelemetryEventType.SUBMISSION_CREATED in event_types
 
+    delete_response = client.delete(
+        f"/api/interviews/{interview_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert delete_response.status_code == 204
+
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "")

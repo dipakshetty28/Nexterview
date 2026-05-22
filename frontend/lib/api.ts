@@ -20,7 +20,7 @@ import type {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 type ApiRequestOptions = {
-  method?: "GET" | "POST" | "PUT";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   token?: string;
 };
@@ -109,6 +109,17 @@ export function createInterview(token: string, input: InterviewCreateInput): Pro
     method: "POST",
     token,
     body: input,
+  });
+}
+
+export function getInterview(token: string, interviewId: string): Promise<Interview> {
+  return apiRequest<Interview>(`/api/interviews/${interviewId}`, { token });
+}
+
+export function deleteInterview(token: string, interviewId: string): Promise<void> {
+  return apiRequest<void>(`/api/interviews/${interviewId}`, {
+    method: "DELETE",
+    token,
   });
 }
 
