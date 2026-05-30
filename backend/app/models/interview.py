@@ -213,6 +213,7 @@ class InterviewSession(TimestampMixin, Base):
     last_autosaved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     interview: Mapped[Interview] = relationship("Interview", back_populates="sessions")
+    candidate: Mapped["User"] = relationship("User", foreign_keys=[candidate_id])
     invite_tokens: Mapped[list[InviteToken]] = relationship("InviteToken", back_populates="session")
     telemetry_events: Mapped[list[TelemetryEvent]] = relationship(
         "TelemetryEvent",
@@ -373,6 +374,7 @@ class Submission(TimestampMixin, Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False)
     test_output: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitted_files: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
+    file_diffs: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_sha: Mapped[str | None] = mapped_column(String(80), nullable=True)
     repository_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -382,6 +384,49 @@ class Submission(TimestampMixin, Base):
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="submission")
+    agent_reviews: Mapped[list[AgentReview]] = relationship(
+        "AgentReview",
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        order_by="AgentReview.agent_type",
+    )
+
+
+class AgentReview(TimestampMixin, Base):
+    __tablename__ = "agent_reviews"
+    __table_args__ = (UniqueConstraint("submission_id", "agent_type", name="uq_agent_reviews_submission_agent"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    submission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    agent_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    strengths: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    weaknesses: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    evidence: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    risk_flags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    recommendation: Mapped[str] = mapped_column(String(120), nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_response: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    submission: Mapped[Submission] = relationship("Submission", back_populates="agent_reviews")
 
 
 class AIMessage(TimestampMixin, Base):

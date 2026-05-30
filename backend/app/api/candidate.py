@@ -63,6 +63,7 @@ from app.services.github import (
     validate_repository_file,
 )
 from app.services.invites import hash_invite_token
+from app.services.review_agents import generate_file_diffs
 from app.services.scenario_projects import ensure_session_file_snapshots
 
 router = APIRouter(prefix="/api", tags=["candidate"])
@@ -316,6 +317,19 @@ def _submitted_files_from_session_snapshots(db: Session, *, session: InterviewSe
             "path": snapshot.path,
             "content": snapshot.current_content,
             "language": snapshot.language,
+            "file_type": snapshot.project_file.file_type,
+        }
+        for snapshot in snapshots
+    ]
+
+
+def _original_files_from_session_snapshots(snapshots: list[SessionFileSnapshot]) -> list[dict[str, object]]:
+    return [
+        {
+            "path": snapshot.path,
+            "content": snapshot.original_content,
+            "language": snapshot.language,
+            "file_type": snapshot.project_file.file_type,
         }
         for snapshot in snapshots
     ]
@@ -1031,6 +1045,10 @@ def submit_session_solution(
         or _submitted_files_from_session_snapshots(db, session=session)
     )
     _validate_submitted_files(submitted_files)
+    file_diffs = generate_file_diffs(
+        original_files=_original_files_from_session_snapshots(visible_snapshots),
+        candidate_files=submitted_files,
+    )
     code = payload.code or _primary_code_from_snapshots(db, session=session)
     try:
         github_result = github_publisher.publish_submission(
@@ -1050,6 +1068,7 @@ def submit_session_solution(
         notes=payload.notes,
         test_output=payload.test_output,
         submitted_files=submitted_files,
+        file_diffs=file_diffs,
         branch_name=github_result.branch_name,
         commit_sha=github_result.commit_sha,
         repository_url=github_result.repository_url,

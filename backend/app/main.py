@@ -6,6 +6,7 @@ from app.api.candidate import router as candidate_router
 from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
 from app.api.interviews import router as interviews_router
+from app.api.reviews import router as reviews_router
 from app.core.config import settings
 
 app = FastAPI(title=settings.app_name)
@@ -23,3 +24,4 @@ app.include_router(candidate_router)
 app.include_router(dashboard_router)
 app.include_router(health_router)
 app.include_router(interviews_router)
+app.include_router(reviews_router)

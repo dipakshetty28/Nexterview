@@ -1,4 +1,5 @@
 from app.models.interview import (
+    AgentReview,
     AIMessage,
     AIMessageRole,
     Interview,
@@ -18,6 +19,7 @@ from app.models.user import User, UserRole
 
 __all__ = [
     "Interview",
+    "AgentReview",
     "InterviewSession",
     "InterviewSessionStatus",
     "AIMessage",

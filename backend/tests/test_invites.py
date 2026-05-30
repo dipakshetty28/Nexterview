@@ -11,12 +11,14 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.candidate import get_candidate_copilot, get_github_submission_publisher
+from app.api.reviews import get_review_agent_runner
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models import (
+    AgentReview,
     AIMessage,
     AIMessageRole,
     Interview,
@@ -36,11 +38,13 @@ from app.models import (
 )
 from app.services.copilot import CopilotResult
 from app.services.github import GitHubSubmissionPushResult
+from app.services.review_agents import AGENT_DEFINITIONS, AgentReviewResult, generate_file_diffs
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
 _ = (
     AIMessage,
+    AgentReview,
     Interview,
     InterviewSession,
     InviteToken,
@@ -793,6 +797,190 @@ def test_candidate_submission_rejects_unsafe_submitted_file_path(
     )
     assert session_response.status_code == 200
     assert session_response.json()["status"] == "started"
+
+
+def test_generate_file_diffs_for_modified_added_and_deleted_files() -> None:
+    diffs = generate_file_diffs(
+        original_files=[
+            {"path": "app/main.py", "content": "value = 1\n", "language": "python", "file_type": "source"},
+            {"path": "README.md", "content": "old\n", "language": "markdown", "file_type": "docs"},
+        ],
+        candidate_files=[
+            {"path": "app/main.py", "content": "value = 2\n", "language": "python", "file_type": "source"},
+            {"path": "tests/test_main.py", "content": "def test_main():\n    assert True\n", "language": "python", "file_type": "test"},
+        ],
+    )
+
+    by_path = {diff["path"]: diff for diff in diffs}
+    assert by_path["app/main.py"]["status"] == "modified"
+    assert by_path["app/main.py"]["additions"] == 1
+    assert by_path["app/main.py"]["deletions"] == 1
+    assert by_path["README.md"]["status"] == "deleted"
+    assert by_path["tests/test_main.py"]["status"] == "added"
+    assert "--- a/app/main.py" in by_path["app/main.py"]["diff"]
+    assert "+++ b/app/main.py" in by_path["app/main.py"]["diff"]
+
+
+def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token, candidate_token, session, workspace = _start_workspace_session(
+        client,
+        candidate_email="review-context@example.com",
+    )
+    _fix_order_workspace(client, candidate_token=candidate_token, session_id=session["id"], workspace=workspace)
+    workspace_files = {workspace_file["path"]: workspace_file for workspace_file in workspace["files"]}
+    main_file = workspace_files["app/main.py"]
+
+    run_response = client.post(
+        f"/api/sessions/{session['id']}/run-tests",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={},
+    )
+    assert run_response.status_code == 200
+    test_run = run_response.json()
+
+    class StubCopilot:
+        def generate_reply(
+            self,
+            *,
+            session: InterviewSession,
+            question: str,
+            context: dict[str, object],
+            previous_messages: list[AIMessage],
+        ) -> CopilotResult:
+            assert "hidden_rubric" not in context
+            assert "hidden_evaluation_points" not in context
+            assert "interviewer_rubric" not in context
+            assert previous_messages == []
+            assert "status filter" in question.lower()
+            return CopilotResult(
+                content="Check the status query path and rerun workspace checks.",
+                source="mock",
+                model="test-copilot",
+                suggested_files=[{"path": "app/main.py", "reason": "Endpoint query handling lives here."}],
+                risk_flags=[],
+                confidence="high",
+                included_context_size=512,
+            )
+
+    app.dependency_overrides[get_candidate_copilot] = lambda: StubCopilot()
+    ai_response = client.post(
+        f"/api/sessions/{session['id']}/ai",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={
+            "question": "Can you review my status filter and suggest validation?",
+            "current_file_path": "app/main.py",
+            "current_file_content": main_file["current_content"],
+            "latest_test_output": test_run["output"],
+            "notes": "Root cause: totals ignored item quantities.",
+        },
+    )
+    assert ai_response.status_code == 201
+
+    class StubGitHubPublisher:
+        def publish_submission(self, **_: object) -> GitHubSubmissionPushResult:
+            return GitHubSubmissionPushResult(
+                status="pushed",
+                branch_name="interview-review-branch",
+                commit_sha="def456",
+                repository_url="https://github.com/example/repo",
+                pull_request_url="https://github.com/example/repo/pull/11",
+            )
+
+    app.dependency_overrides[get_github_submission_publisher] = lambda: StubGitHubPublisher()
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={
+            "notes": "Root cause: totals ignored quantity. I fixed totals, added status filtering, and reran checks.",
+            "test_output": test_run["output"],
+        },
+    )
+    assert submit_response.status_code == 201
+    submission = submit_response.json()
+    assert {file_diff["path"] for file_diff in submission["file_diffs"]} == {
+        "app/main.py",
+        "app/services/orders.py",
+    }
+
+    class StubReviewRunner:
+        def __init__(self) -> None:
+            self.context: dict[str, object] | None = None
+
+        def review(self, context: dict[str, object]) -> list[AgentReviewResult]:
+            self.context = context
+            scenario_context = context["scenario"]
+            assert isinstance(scenario_context, dict)
+            assert scenario_context["hidden_rubric"]
+            assert scenario_context["hidden_evaluation_points"]
+            assert scenario_context["interviewer_rubric"]
+            assert "hidden_rubric" not in ai_response.text
+            assert "app/main.py" in [file["path"] for file in context["candidate_submitted_files"]]  # type: ignore[index]
+            assert any(file["is_hidden"] for file in context["original_project_files"])  # type: ignore[index]
+            assert {file_diff["path"] for file_diff in context["file_diffs"]} == {  # type: ignore[index]
+                "app/main.py",
+                "app/services/orders.py",
+            }
+            assert any(message["role"] == "user" for message in context["ai_chat_transcript"])  # type: ignore[index]
+            assert any(event["event_type"] == "test_run" for event in context["telemetry_events"])  # type: ignore[index]
+            assert context["test_run_outputs"] == [test_run["output"]]
+            github = context["github"]
+            assert isinstance(github, dict)
+            assert github["pull_request_url"] == "https://github.com/example/repo/pull/11"
+            return [
+                AgentReviewResult(
+                    agent_type=agent["type"],
+                    agent_label=agent["label"],
+                    score=82 if agent["type"] != "hiring_recommendation" else 80,
+                    strengths=[f"{agent['label']} reviewed repo evidence."],
+                    weaknesses=[],
+                    evidence=["Diffs, AI transcript, telemetry, and notes were included."],
+                    risk_flags=[],
+                    recommendation="hire" if agent["type"] == "hiring_recommendation" else "strong signal",
+                    explanation=f"{agent['label']} completed the mocked review.",
+                    raw_response={"source": "mock"},
+                )
+                for agent in AGENT_DEFINITIONS
+            ]
+
+    review_runner = StubReviewRunner()
+    app.dependency_overrides[get_review_agent_runner] = lambda: review_runner
+    review_response = client.post(
+        f"/api/submissions/{submission['id']}/review",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert review_response.status_code == 201
+    review_summary = review_response.json()
+    assert review_summary["status"] == "reviewed"
+    assert review_summary["weighted_score"] == 82
+    assert review_summary["recommendation"] == "hire"
+    assert len(review_summary["agent_reviews"]) == len(AGENT_DEFINITIONS)
+    assert review_summary["ai_usage_analysis"]["candidate_prompt_count"] == 1
+    assert review_summary["ai_usage_analysis"]["validated_suggestions"] is True
+    assert review_runner.context is not None
+
+    result_response = client.get(
+        f"/api/results/{session['id']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert result_response.status_code == 200
+    result = result_response.json()
+    assert result["candidate_email"] == "review-context@example.com"
+    assert result["changed_files"] == ["app/main.py", "app/services/orders.py"]
+    assert result["github"]["pull_request_url"] == "https://github.com/example/repo/pull/11"
+    assert len(result["score_breakdown"]) == 7
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        assert db.execute(select(AgentReview)).scalars().all()
+        stored_session = db.execute(select(InterviewSession).where(InterviewSession.id == session["id"])).scalar_one()
+    finally:
+        db.close()
+    assert stored_session.status == InterviewSessionStatus.REVIEWED
 
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

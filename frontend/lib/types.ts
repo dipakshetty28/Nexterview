@@ -154,6 +154,90 @@ export type InterviewSubmissionResult = {
   notes: string | null;
 };
 
+export type FileDiff = {
+  path: string;
+  status: string;
+  language: string;
+  file_type: string;
+  additions: number;
+  deletions: number;
+  diff: string;
+};
+
+export type AgentReview = {
+  id: string;
+  submission_id: string;
+  session_id: string;
+  agent_type: string;
+  agent_label: string;
+  score: number;
+  strengths: string[];
+  weaknesses: string[];
+  evidence: string[];
+  risk_flags: string[];
+  recommendation: string;
+  explanation: string;
+  raw_response: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ScoreBreakdownItem = {
+  agent_type: string;
+  label: string;
+  weight: number;
+  score: number | null;
+  weighted_score: number | null;
+};
+
+export type GitHubReviewLinks = {
+  branch_name: string | null;
+  commit_sha: string | null;
+  repository_url: string | null;
+  pull_request_url: string | null;
+  push_status: string | null;
+  push_error: string | null;
+};
+
+export type AIUsageAnalysis = {
+  candidate_prompt_count: number;
+  assistant_response_count: number;
+  prompts_with_file_context: number;
+  test_run_count: number;
+  response_confidence_values: string[];
+  validated_suggestions: boolean;
+  summary: string;
+};
+
+export type SubmissionReviewSummary = {
+  submission_id: string;
+  session_id: string;
+  candidate_id: string;
+  submitted_at: string;
+  status: "invited" | "started" | "submitted" | "reviewed";
+  changed_files: string[];
+  file_diffs: FileDiff[];
+  github: GitHubReviewLinks;
+  agent_reviews: AgentReview[];
+  score_breakdown: ScoreBreakdownItem[];
+  weighted_score: number | null;
+  recommendation: string | null;
+  ai_usage_analysis: AIUsageAnalysis;
+  test_output: string | null;
+  notes: string;
+};
+
+export type SessionResult = SubmissionReviewSummary & {
+  candidate_email: string;
+  candidate_name: string;
+  interview_id: string;
+  role_title: string;
+  scenario_title: string;
+  bug_description: string;
+  feature_request: string;
+  validation_instructions: string;
+};
+
 export type InterviewCreateInput = {
   role_title: string;
   seniority: string;
@@ -305,6 +389,7 @@ export type Submission = {
   notes: string;
   test_output: string | null;
   submitted_files: Array<Record<string, unknown>>;
+  file_diffs: Array<Record<string, unknown>>;
   branch_name: string | null;
   commit_sha: string | null;
   repository_url: string | null;

@@ -322,6 +322,14 @@ function InterviewDetailContent() {
                       </div>
                       <div className="min-w-0 md:min-w-72 md:text-right">
                         <GitHubSubmissionLinks submission={submission} />
+                        {submission.submission_id ? (
+                          <Link
+                            className="mt-2 inline-flex text-xs font-medium text-cyan-300 hover:text-cyan-200"
+                            href={`/results/${submission.session_id}`}
+                          >
+                            View result
+                          </Link>
+                        ) : null}
                       </div>
                     </div>
                   ))

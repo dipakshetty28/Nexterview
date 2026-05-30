@@ -10,7 +10,9 @@ import type {
   InviteTokenResponse,
   PublicInvite,
   Scenario,
+  SessionResult,
   Submission,
+  SubmissionReviewSummary,
   TelemetryEvent,
   TelemetryEventType,
   TestRunResult,
@@ -119,6 +121,17 @@ export function getInterview(token: string, interviewId: string): Promise<Interv
 
 export function getInterviewSubmissions(token: string, interviewId: string): Promise<InterviewSubmissionResult[]> {
   return apiRequest<InterviewSubmissionResult[]>(`/api/interviews/${interviewId}/submissions`, { token });
+}
+
+export function getSessionResult(token: string, sessionId: string): Promise<SessionResult> {
+  return apiRequest<SessionResult>(`/api/results/${sessionId}`, { token });
+}
+
+export function runSubmissionReview(token: string, submissionId: string): Promise<SubmissionReviewSummary> {
+  return apiRequest<SubmissionReviewSummary>(`/api/submissions/${submissionId}/review`, {
+    method: "POST",
+    token,
+  });
 }
 
 export function deleteInterview(token: string, interviewId: string): Promise<void> {
