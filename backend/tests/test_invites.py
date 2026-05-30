@@ -29,6 +29,7 @@ from app.models import (
     OrganizationMember,
     ProjectFile,
     Scenario,
+    Score,
     SessionFileSnapshot,
     Submission,
     TelemetryEvent,
@@ -52,6 +53,7 @@ _ = (
     OrganizationMember,
     ProjectFile,
     Scenario,
+    Score,
     SessionFileSnapshot,
     Submission,
     TelemetryEvent,
@@ -475,7 +477,7 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     )
     assert submitted_session_response.status_code == 200
     submitted_session = submitted_session_response.json()
-    assert submitted_session["status"] == "submitted"
+    assert submitted_session["status"] == "reviewed"
     assert submitted_session["submission"]["id"] == submission["id"]
 
     post_submit_edit_response = client.post(
@@ -890,22 +892,6 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
                 pull_request_url="https://github.com/example/repo/pull/11",
             )
 
-    app.dependency_overrides[get_github_submission_publisher] = lambda: StubGitHubPublisher()
-    submit_response = client.post(
-        f"/api/sessions/{session['id']}/submit",
-        headers={"Authorization": f"Bearer {candidate_token}"},
-        json={
-            "notes": "Root cause: totals ignored quantity. I fixed totals, added status filtering, and reran checks.",
-            "test_output": test_run["output"],
-        },
-    )
-    assert submit_response.status_code == 201
-    submission = submit_response.json()
-    assert {file_diff["path"] for file_diff in submission["file_diffs"]} == {
-        "app/main.py",
-        "app/services/orders.py",
-    }
-
     class StubReviewRunner:
         def __init__(self) -> None:
             self.context: dict[str, object] | None = None
@@ -947,12 +933,27 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
             ]
 
     review_runner = StubReviewRunner()
+    app.dependency_overrides[get_github_submission_publisher] = lambda: StubGitHubPublisher()
     app.dependency_overrides[get_review_agent_runner] = lambda: review_runner
-    review_response = client.post(
-        f"/api/submissions/{submission['id']}/review",
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={
+            "notes": "Root cause: totals ignored quantity. I fixed totals, added status filtering, and reran checks.",
+            "test_output": test_run["output"],
+        },
+    )
+    assert submit_response.status_code == 201
+    submission = submit_response.json()
+    assert {file_diff["path"] for file_diff in submission["file_diffs"]} == {
+        "app/main.py",
+        "app/services/orders.py",
+    }
+    review_response = client.get(
+        f"/api/submissions/{submission['id']}/reviews",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    assert review_response.status_code == 201
+    assert review_response.status_code == 200
     review_summary = review_response.json()
     assert review_summary["status"] == "reviewed"
     assert review_summary["weighted_score"] == 82
@@ -977,10 +978,14 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
     db = next(db_generator)
     try:
         assert db.execute(select(AgentReview)).scalars().all()
+        stored_score = db.execute(select(Score)).scalar_one()
         stored_session = db.execute(select(InterviewSession).where(InterviewSession.id == session["id"])).scalar_one()
     finally:
         db.close()
     assert stored_session.status == InterviewSessionStatus.REVIEWED
+    assert stored_score.weighted_score == 82
+    assert stored_score.recommendation == "hire"
+    assert len(stored_score.score_breakdown) == 7
 
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -38,7 +38,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `POST /api/sessions/{id}/run-tests`
   - `POST /api/sessions/{id}/submit`
 - Users, organizations, and organization memberships
-- Interviews, invite tokens, interview sessions, stored generated scenarios, scenario projects, project files, session file snapshots, telemetry events, AI messages, submissions with file-level diffs, and internal agent reviews
+- Interviews, invite tokens, interview sessions, stored generated scenarios, scenario projects, project files, session file snapshots, telemetry events, AI messages, submissions with file-level diffs, internal agent reviews, and persisted weighted scores
 - OpenAI Responses API integration on the backend with strict Pydantic JSON validation for generated repo projects
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
@@ -46,6 +46,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - Optional GitHub submission publisher that creates a branch, commits changed visible workspace files, optionally opens a pull request, and preserves database submissions when GitHub is not configured or push fails
 - Structured AI copilot responses with markdown answers, suggested file chips, confidence, risk flags, and telemetry for later prompting-skill analytics
 - Repo-aware multi-agent review that evaluates original project files, submitted files, generated diffs, AI transcript, telemetry, test outputs, candidate notes, and GitHub branch/PR links while allowing internal-only rubric context
+- V1 post-submit review scheduling uses FastAPI background tasks; Redis-backed RQ/Celery remains a future production hardening step
 - Seed script with demo users and a sample generated interview scenario
 
 ## Architecture
@@ -301,6 +302,8 @@ Authorization: Bearer <interviewer_access_token>
 
 The review context includes the scenario, candidate instructions, bug description, feature request, validation instructions, original project files, submitted files, file-level diffs, AI chat transcript, telemetry events, test run outputs, candidate notes/root cause summary, and GitHub branch or PR links when available. Internal review agents may use `hidden_rubric`, `hidden_evaluation_points`, and `interviewer_rubric`; the candidate-facing copilot never receives those fields.
 
+Candidate submission automatically schedules the same internal review flow after the final solution is saved. The manual `POST /api/submissions/{submission_id}/review` endpoint remains available and idempotent for retries or older submissions. V1 uses FastAPI background tasks rather than RQ/Celery so local demos do not require worker processes; production queue hardening is still future work.
+
 Read review results:
 
 ```http
@@ -311,7 +314,7 @@ GET /api/results/{session_id}
 Authorization: Bearer <interviewer_access_token>
 ```
 
-The result payload includes changed files, unified diffs, GitHub push metadata, agent reviews, weighted score breakdown, AI usage analysis, submitted test output, and candidate notes. The weighted score uses the current rubric weights: Code Quality 15%, Correctness 20%, Architecture 15%, Debugging 15%, AI Usage 15%, Prompting Skill 10%, and Communication 10%. Security and Performance agents report risks but are not separate weighted categories.
+The result payload includes changed files, unified diffs, GitHub push metadata, agent reviews, weighted score breakdown, AI usage analysis, submitted test output, and candidate notes. The backend stores the final weighted result in the `scores` table. The weighted score uses the current rubric weights: Code Quality 15%, Correctness 20%, Architecture 15%, Debugging 15%, AI Usage 15%, Prompting Skill 10%, and Communication 10%. Security and Performance agents report risks but are not separate weighted categories.
 
 Delete an interview:
 
@@ -459,7 +462,7 @@ Content-Type: application/json
 
 For multi-file sessions, `code` and `submitted_files` are optional. If `submitted_files` is omitted and the session has file snapshots, the backend stores the current visible session snapshots as the submission. Single-file clients can continue sending `code`. When GitHub is configured, the backend creates a branch named `interview-{interview_id}-session-{session_id}-{timestamp}`, commits changed visible workspace files, pushes the branch, and optionally creates a pull request. If GitHub is disabled or the push fails, the submission still succeeds and stores submitted files in PostgreSQL with `push_status` and a safe `push_error` when applicable. Hidden files, unsafe paths, environment files, and private key material are not committed.
 
-Final submissions also store generated file-level diffs. Interviewers can open `/results/{session_id}` from the interview detail page, run the internal review agents, inspect changed files and diffs, review AI usage analysis, and see the weighted score breakdown plus hiring recommendation.
+Final submissions also store generated file-level diffs. After the submission is saved, Nexterview schedules the internal multi-agent review, stores per-agent records in `agent_reviews`, and stores the final weighted score in `scores`. Interviewers can open `/results/{session_id}` from the interview detail page, inspect changed files and diffs, review AI usage analysis, rerun the review if needed, and see the weighted score breakdown plus hiring recommendation.
 
 Candidate session statuses are `invited`, `started`, `submitted`, and `reviewed`. Candidates can only access sessions where they are the session owner. Submitted or reviewed sessions no longer accept code edits, note updates, test runs, or duplicate final submissions.
 

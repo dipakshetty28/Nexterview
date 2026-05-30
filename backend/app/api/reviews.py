@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any
 from uuid import UUID
@@ -7,9 +8,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from app.api.deps import require_roles
+from app.db.session import SessionLocal
 from app.db.session import get_db
 from app.models.interview import (
     AIMessage,
@@ -19,6 +21,7 @@ from app.models.interview import (
     InterviewSessionStatus,
     Scenario,
     ScenarioProject,
+    Score,
     Submission,
     TelemetryEvent,
 )
@@ -41,6 +44,7 @@ from app.services.review_agents import (
 )
 
 router = APIRouter(prefix="/api", tags=["reviews"])
+logger = logging.getLogger(__name__)
 
 
 def get_review_agent_runner() -> RepoSubmissionReviewer:
@@ -84,6 +88,7 @@ def _submission_options():
         selectinload(Submission.session).selectinload(InterviewSession.candidate),
         selectinload(Submission.session).selectinload(InterviewSession.interview),
         selectinload(Submission.agent_reviews),
+        selectinload(Submission.score),
     )
 
 
@@ -232,17 +237,16 @@ def _telemetry_events(events: list[TelemetryEvent]) -> list[dict[str, Any]]:
 def _summary_for_submission(submission: Submission, *, context: dict[str, Any] | None = None) -> SubmissionReviewSummaryRead:
     review_context = context or _review_context(submission)
     reviews = sorted(submission.agent_reviews, key=lambda review: review.agent_type)
-    review_dicts = [
-        {
-            "agent_type": review.agent_type,
-            "score": review.score,
-        }
-        for review in reviews
-    ]
-    breakdown = build_score_breakdown(review_dicts)
-    weighted_score = weighted_score_from_breakdown(breakdown)
-    hiring_review = next((review for review in reviews if review.agent_type == "hiring_recommendation"), None)
-    recommendation = hiring_review.recommendation if hiring_review else recommendation_for_score(weighted_score)
+    if submission.score is not None:
+        breakdown = submission.score.score_breakdown
+        weighted_score = submission.score.weighted_score
+        recommendation = submission.score.recommendation
+        ai_usage_analysis = submission.score.ai_usage_analysis
+    else:
+        breakdown = _score_breakdown_for_reviews(reviews)
+        weighted_score = weighted_score_from_breakdown(breakdown)
+        recommendation = _recommendation_for_reviews(reviews, weighted_score)
+        ai_usage_analysis = summarize_ai_usage(review_context)
     file_diffs = [FileDiffRead.model_validate(file_diff) for file_diff in submission.file_diffs]
     return SubmissionReviewSummaryRead(
         submission_id=submission.id,
@@ -264,7 +268,7 @@ def _summary_for_submission(submission: Submission, *, context: dict[str, Any] |
         score_breakdown=[ScoreBreakdownItemRead.model_validate(item) for item in breakdown],
         weighted_score=weighted_score,
         recommendation=recommendation,
-        ai_usage_analysis=AIUsageAnalysisRead.model_validate(summarize_ai_usage(review_context)),
+        ai_usage_analysis=AIUsageAnalysisRead.model_validate(ai_usage_analysis),
         test_output=submission.test_output,
         notes=submission.notes,
     )
@@ -289,22 +293,72 @@ def _session_result_for_submission(submission: Submission) -> SessionResultRead:
     )
 
 
-@router.post(
-    "/submissions/{submission_id}/review",
-    response_model=SubmissionReviewSummaryRead,
-    status_code=status.HTTP_201_CREATED,
-)
-def review_submission(
-    submission_id: UUID,
-    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
-    db: Annotated[Session, Depends(get_db)],
-    reviewer: Annotated[RepoSubmissionReviewer, Depends(get_review_agent_runner)],
-) -> SubmissionReviewSummaryRead:
-    submission = _get_submission_for_reviewer(db, submission_id=submission_id, current_user=current_user)
-    context = _review_context(submission)
-    if not submission.agent_reviews:
-        results = reviewer.review(context)
-        for result in results:
+def _score_breakdown_for_reviews(reviews: list[AgentReview]) -> list[dict[str, Any]]:
+    return build_score_breakdown(
+        [
+            {
+                "agent_type": review.agent_type,
+                "score": review.score,
+            }
+            for review in reviews
+        ]
+    )
+
+
+def _recommendation_for_reviews(reviews: list[AgentReview], weighted_score: float | None) -> str | None:
+    hiring_review = next((review for review in reviews if review.agent_type == "hiring_recommendation"), None)
+    return hiring_review.recommendation if hiring_review else recommendation_for_score(weighted_score)
+
+
+def _upsert_score(
+    db: Session,
+    *,
+    submission: Submission,
+    reviews: list[AgentReview],
+    context: dict[str, Any],
+) -> Score | None:
+    if not reviews:
+        return None
+    breakdown = _score_breakdown_for_reviews(reviews)
+    weighted_score = weighted_score_from_breakdown(breakdown)
+    if weighted_score is None:
+        return None
+    recommendation = _recommendation_for_reviews(reviews, weighted_score) or "review complete"
+    ai_usage_analysis = summarize_ai_usage(context)
+    score = submission.score
+    if score is None:
+        score = Score(
+            organization_id=submission.organization_id,
+            submission_id=submission.id,
+            session_id=submission.session_id,
+            weighted_score=weighted_score,
+            recommendation=recommendation,
+            score_breakdown=breakdown,
+            ai_usage_analysis=ai_usage_analysis,
+            scoring_version="v1",
+        )
+        db.add(score)
+    else:
+        score.weighted_score = weighted_score
+        score.recommendation = recommendation
+        score.score_breakdown = breakdown
+        score.ai_usage_analysis = ai_usage_analysis
+        score.scoring_version = "v1"
+    return score
+
+
+def _persist_submission_review(
+    db: Session,
+    *,
+    submission: Submission,
+    reviewer: RepoSubmissionReviewer,
+    context: dict[str, Any] | None = None,
+) -> None:
+    review_context = context or _review_context(submission)
+    reviews = sorted(submission.agent_reviews, key=lambda review: review.agent_type)
+    if not reviews:
+        reviews = []
+        for result in reviewer.review(review_context):
             review = AgentReview(
                 organization_id=submission.organization_id,
                 submission_id=submission.id,
@@ -320,20 +374,68 @@ def review_submission(
                 explanation=result.explanation,
                 raw_response=result.raw_response,
             )
+            reviews.append(review)
             db.add(review)
-        submission.session.status = InterviewSessionStatus.REVIEWED
-        submission.session.reviewed_at = submission.session.reviewed_at or _now_utc()
+        db.flush()
 
-        try:
-            db.commit()
-        except SQLAlchemyError as exc:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Unable to store submission review.",
-            ) from exc
+    _upsert_score(db, submission=submission, reviews=reviews, context=review_context)
+    submission.session.status = InterviewSessionStatus.REVIEWED
+    submission.session.reviewed_at = submission.session.reviewed_at or _now_utc()
 
-        submission = _get_submission_for_reviewer(db, submission_id=submission_id, current_user=current_user)
+
+def run_submission_review_background(
+    submission_id: UUID,
+    reviewer: RepoSubmissionReviewer | None = None,
+    bind: Any | None = None,
+) -> None:
+    if bind is None:
+        db = SessionLocal()
+    else:
+        db = sessionmaker(autocommit=False, autoflush=False, bind=bind)()
+    try:
+        submission = db.execute(
+            select(Submission).options(*_submission_options()).where(Submission.id == submission_id)
+        ).scalar_one_or_none()
+        if submission is None:
+            logger.warning("Skipping submission review because submission %s was not found.", submission_id)
+            return
+        _persist_submission_review(
+            db,
+            submission=submission,
+            reviewer=reviewer or RepoSubmissionReviewer(),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Background submission review failed for submission %s.", submission_id)
+    finally:
+        db.close()
+
+
+@router.post(
+    "/submissions/{submission_id}/review",
+    response_model=SubmissionReviewSummaryRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def review_submission(
+    submission_id: UUID,
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+    reviewer: Annotated[RepoSubmissionReviewer, Depends(get_review_agent_runner)],
+) -> SubmissionReviewSummaryRead:
+    submission = _get_submission_for_reviewer(db, submission_id=submission_id, current_user=current_user)
+    context = _review_context(submission)
+    _persist_submission_review(db, submission=submission, reviewer=reviewer, context=context)
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to store submission review.",
+        ) from exc
+
+    submission = _get_submission_for_reviewer(db, submission_id=submission_id, current_user=current_user)
 
     return _summary_for_submission(submission, context=context)
 

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -390,6 +390,12 @@ class Submission(TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="AgentReview.agent_type",
     )
+    score: Mapped[Score | None] = relationship(
+        "Score",
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class AgentReview(TimestampMixin, Base):
@@ -427,6 +433,38 @@ class AgentReview(TimestampMixin, Base):
     raw_response: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
 
     submission: Mapped[Submission] = relationship("Submission", back_populates="agent_reviews")
+
+
+class Score(TimestampMixin, Base):
+    __tablename__ = "scores"
+    __table_args__ = (UniqueConstraint("submission_id", name="uq_scores_submission_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    submission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    weighted_score: Mapped[float] = mapped_column(Float, nullable=False)
+    recommendation: Mapped[str] = mapped_column(String(120), nullable=False)
+    score_breakdown: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
+    ai_usage_analysis: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
+    scoring_version: Mapped[str] = mapped_column(String(40), nullable=False, default="v1")
+
+    submission: Mapped[Submission] = relationship("Submission", back_populates="score")
 
 
 class AIMessage(TimestampMixin, Base):

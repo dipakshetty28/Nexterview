@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_roles
+from app.api.reviews import get_review_agent_runner, run_submission_review_background
 from app.db.session import get_db
 from app.models.interview import (
     AIMessage,
@@ -63,7 +64,7 @@ from app.services.github import (
     validate_repository_file,
 )
 from app.services.invites import hash_invite_token
-from app.services.review_agents import generate_file_diffs
+from app.services.review_agents import RepoSubmissionReviewer, generate_file_diffs
 from app.services.scenario_projects import ensure_session_file_snapshots
 
 router = APIRouter(prefix="/api", tags=["candidate"])
@@ -1032,9 +1033,11 @@ def run_session_tests(
 def submit_session_solution(
     session_id: UUID,
     payload: SubmissionCreate,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(require_roles(UserRole.CANDIDATE))],
     db: Annotated[Session, Depends(get_db)],
     github_publisher: Annotated[GitHubSubmissionPublisher, Depends(get_github_submission_publisher)],
+    reviewer: Annotated[RepoSubmissionReviewer, Depends(get_review_agent_runner)],
 ) -> SubmissionRead:
     session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
     _ensure_session_accepts_work(session)
@@ -1110,6 +1113,7 @@ def submit_session_solution(
         ) from exc
 
     db.refresh(submission)
+    background_tasks.add_task(run_submission_review_background, submission.id, reviewer, db.get_bind())
     return SubmissionRead.model_validate(submission)
 
 
