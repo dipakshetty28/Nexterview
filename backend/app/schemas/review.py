@@ -45,16 +45,6 @@ class ScoreBreakdownItemRead(BaseModel):
     weighted_score: float | None
 
 
-class GitHubReviewLinksRead(BaseModel):
-    branch_name: str | None
-    base_branch_name: str | None
-    commit_sha: str | None
-    repository_url: str | None
-    pull_request_url: str | None
-    push_status: str | None
-    push_error: str | None
-
-
 class AIUsageAnalysisRead(BaseModel):
     candidate_prompt_count: int
     assistant_response_count: int
@@ -77,7 +67,6 @@ class AITranscriptMessageRead(BaseModel):
     role: str
     content: str
     ai_mode: str
-    ai_model: str | None
     metadata: dict[str, Any]
     created_at: datetime
 
@@ -114,8 +103,6 @@ class ResultsDashboardItemRead(BaseModel):
     reviewed_at: datetime | None
     weighted_score: float | None
     recommendation: str | None
-    push_status: str | None
-    pull_request_url: str | None
     risk_flags: list[str] = Field(default_factory=list)
 
 
@@ -127,7 +114,6 @@ class SubmissionReviewSummaryRead(BaseModel):
     status: str
     changed_files: list[str]
     file_diffs: list[FileDiffRead] = Field(default_factory=list)
-    github: GitHubReviewLinksRead
     agent_reviews: list[AgentReviewRead] = Field(default_factory=list)
     score_breakdown: list[ScoreBreakdownItemRead] = Field(default_factory=list)
     weighted_score: float | None

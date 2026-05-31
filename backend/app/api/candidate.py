@@ -171,7 +171,7 @@ def _session_response(session: InterviewSession) -> InterviewSessionRead:
         scenario=_candidate_scenario_response(interview.scenario),
         submission=SubmissionRead.model_validate(session.submission) if session.submission else None,
         ai_messages=[
-            AIMessageRead.model_validate(message)
+            _candidate_ai_message_response(message)
             for message in sorted(session.ai_messages, key=lambda message: message.created_at)
         ],
     )
@@ -401,6 +401,34 @@ def _workspace_file_response(snapshot: SessionFileSnapshot) -> CandidateWorkspac
         file_type=project_file.file_type,
         is_editable=project_file.is_editable,
         updated_at=snapshot.updated_at,
+    )
+
+
+def _candidate_message_metadata(message: AIMessage) -> dict[str, object]:
+    metadata = message.message_metadata or {}
+    if message.role == AIMessageRole.USER:
+        return {
+            key: metadata[key]
+            for key in ("current_file_path", "latest_test_output_included", "notes_included")
+            if key in metadata
+        }
+    return {
+        key: metadata[key]
+        for key in ("suggested_files", "risk_flags", "confidence")
+        if key in metadata
+    }
+
+
+def _candidate_ai_message_response(message: AIMessage) -> AIMessageRead:
+    return AIMessageRead(
+        id=message.id,
+        session_id=message.session_id,
+        candidate_id=message.candidate_id,
+        role=message.role,
+        content=message.content,
+        ai_mode=message.ai_mode,
+        message_metadata=_candidate_message_metadata(message),
+        created_at=message.created_at,
     )
 
 
@@ -1111,7 +1139,6 @@ def submit_session_solution(
                 "code_length": len(code),
                 "note_length": len(payload.notes),
                 "submitted_file_count": len(submitted_files),
-                "base_branch_name": github_result.base_branch_name,
                 "changed_file_count": sum(
                     1 for snapshot in visible_snapshots if snapshot.current_content != snapshot.original_content
                 ),
@@ -1226,8 +1253,8 @@ def ask_candidate_copilot(
     db.refresh(user_message)
     db.refresh(assistant_message)
     return AICopilotResponse(
-        user_message=AIMessageRead.model_validate(user_message),
-        assistant_message=AIMessageRead.model_validate(assistant_message),
+        user_message=_candidate_ai_message_response(user_message),
+        assistant_message=_candidate_ai_message_response(assistant_message),
         response=CopilotStructuredResponse(
             answer=result.content,
             suggested_files=result.suggested_files,

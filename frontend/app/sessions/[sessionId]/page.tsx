@@ -69,13 +69,6 @@ function formatSavedAt(value: string | null): string {
   }).format(new Date(value));
 }
 
-function branchUrl(submission: Submission): string | null {
-  if (!submission.repository_url || !submission.branch_name) {
-    return null;
-  }
-  return `${submission.repository_url}/tree/${encodeURIComponent(submission.branch_name)}`;
-}
-
 function formatCopilotTestOutput(testRun: TestRunResult | null): string | null {
   if (!testRun) {
     return null;
@@ -1149,33 +1142,7 @@ function CandidateSessionContent() {
                 {submission ? (
                   <div className="mt-3 grid gap-2 rounded-md border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
                     <p>Submitted at {formatSavedAt(submission.submitted_at)}.</p>
-                    {submission.push_status === "pushed" ? (
-                      <div className="grid gap-1 text-emerald-100">
-                        {branchUrl(submission) ? (
-                          <a className="font-medium text-cyan-200 hover:text-cyan-100" href={branchUrl(submission) ?? ""}>
-                            Branch created: {submission.branch_name}
-                          </a>
-                        ) : (
-                          <p>Branch created: {submission.branch_name}</p>
-                        )}
-                        {submission.pull_request_url ? (
-                          <a className="font-medium text-cyan-200 hover:text-cyan-100" href={submission.pull_request_url}>
-                            Open pull request
-                          </a>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {submission.push_status === "not_configured" ? (
-                      <p className="text-emerald-100">GitHub push is disabled. Your submitted files were saved in Nexterview.</p>
-                    ) : null}
-                    {submission.push_status === "failed" ? (
-                      <p className="text-amber-200">
-                        GitHub push failed, but your submitted files were saved in Nexterview.
-                      </p>
-                    ) : null}
-                    {submission.push_status === "no_changes" ? (
-                      <p className="text-emerald-100">No changed files were detected for GitHub, so Nexterview saved the submission only.</p>
-                    ) : null}
+                    <p className="text-emerald-100">Your solution was saved for interviewer review.</p>
                   </div>
                 ) : null}
               </section>
