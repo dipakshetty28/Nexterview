@@ -5,18 +5,13 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+import { AppShell } from "@/components/app/app-shell";
+import { EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/app/page-primitives";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { Button } from "@/components/ui/button";
 import { ApiError, getSessionResult, runSubmissionReview } from "@/lib/api";
-import type { AgentReview, AITranscriptMessage, FileDiff, GitHubReviewLinks, SessionResult, TelemetryTimelineEvent } from "@/lib/types";
-
-function branchUrl(github: GitHubReviewLinks): string | null {
-  if (!github.repository_url || !github.branch_name) {
-    return null;
-  }
-  return `${github.repository_url}/tree/${encodeURIComponent(github.branch_name)}`;
-}
+import type { AgentReview, AITranscriptMessage, FileDiff, SessionResult, TelemetryTimelineEvent } from "@/lib/types";
 
 function scoreTone(score: number | null): string {
   if (score === null) {
@@ -32,36 +27,6 @@ function scoreTone(score: number | null): string {
     return "border-amber-900/70 bg-amber-950/30 text-amber-200";
   }
   return "border-red-900/70 bg-red-950/30 text-red-200";
-}
-
-function GitHubLinks({ github }: { github: GitHubReviewLinks }) {
-  const branchHref = branchUrl(github);
-  if (github.push_status === "pushed") {
-    return (
-      <div className="flex flex-wrap gap-3 text-sm">
-        {branchHref ? (
-          <a className="font-medium text-cyan-300 hover:text-cyan-200" href={branchHref}>
-            Branch: {github.branch_name}
-          </a>
-        ) : (
-          <span className="text-slate-300">Branch: {github.branch_name}</span>
-        )}
-        {github.pull_request_url ? (
-          <a className="font-medium text-cyan-300 hover:text-cyan-200" href={github.pull_request_url}>
-            Pull request
-          </a>
-        ) : null}
-        {github.base_branch_name ? <span className="text-slate-500">Base: {github.base_branch_name}</span> : null}
-      </div>
-    );
-  }
-  if (github.push_status === "failed") {
-    return <p className="text-sm text-amber-300">GitHub push failed; database submission was preserved.</p>;
-  }
-  if (github.push_status === "no_changes") {
-    return <p className="text-sm text-slate-400">No changed files were pushed to GitHub.</p>;
-  }
-  return <p className="text-sm text-slate-400">GitHub push disabled; reviewing database submission.</p>;
 }
 
 function ReviewList({ title, items }: { title: string; items: string[] }) {
@@ -176,7 +141,7 @@ function ChatMessage({ message }: { message: AITranscriptMessage }) {
           <span className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium text-slate-300">{message.role}</span>
           <span className="text-xs text-slate-500">{new Date(message.created_at).toLocaleString()}</span>
         </div>
-        <span className="text-xs text-slate-500">{confidence ? `Confidence: ${confidence}` : message.ai_model ?? message.ai_mode}</span>
+        <span className="text-xs text-slate-500">{confidence ? `Confidence: ${confidence}` : message.ai_mode}</span>
       </div>
       {currentFile ? <p className="mt-2 text-xs text-cyan-300">File context: {currentFile}</p> : null}
       <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-300">{message.content}</pre>
@@ -202,16 +167,50 @@ function AITranscript({ result }: { result: SessionResult }) {
   );
 }
 
+function telemetrySummary(event: TelemetryTimelineEvent): string[] {
+  const payload = event.payload;
+  const lines: string[] = [];
+  const path = typeof payload.path === "string" ? payload.path : null;
+  const currentFile = typeof payload.current_file_path === "string" ? payload.current_file_path : null;
+  const autosavedAt = typeof payload.autosaved_at === "string" ? payload.autosaved_at : null;
+  const status = typeof payload.status === "string" ? payload.status : null;
+  const testStatus = typeof payload.test_status === "string" ? payload.test_status : null;
+
+  if (path) {
+    lines.push(`File: ${path}`);
+  }
+  if (currentFile) {
+    lines.push(`Context file: ${currentFile}`);
+  }
+  if (status) {
+    lines.push(`Status: ${status}`);
+  }
+  if (testStatus) {
+    lines.push(`Test status: ${testStatus}`);
+  }
+  if (autosavedAt) {
+    lines.push(`Autosaved: ${new Date(autosavedAt).toLocaleString()}`);
+  }
+
+  if (!lines.length) {
+    lines.push("Event recorded.");
+  }
+  return lines;
+}
+
 function TimelineEvent({ event }: { event: TelemetryTimelineEvent }) {
+  const summary = telemetrySummary(event);
   return (
     <article className="grid gap-2 border-l border-slate-700 pl-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-sm font-medium text-slate-100">{event.event_type}</h3>
         <span className="text-xs text-slate-500">{new Date(event.created_at).toLocaleString()}</span>
       </div>
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-400">
-        {JSON.stringify(event.payload, null, 2)}
-      </pre>
+      <ul className="grid gap-1 rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-400">
+        {summary.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
     </article>
   );
 }
@@ -319,40 +318,40 @@ function ResultContent() {
 
   if (!canReview) {
     return (
-      <main className="min-h-screen bg-slate-950 px-6 py-8 text-slate-100">
-        <div className="mx-auto max-w-3xl rounded-md border border-slate-800 bg-slate-900/70 p-6">
-          <h1 className="text-2xl font-semibold">Submission result</h1>
-          <p className="mt-3 text-sm text-slate-400">Your role cannot review interview submissions.</p>
+      <AppShell>
+        <PageHeader
+          description="Submission results are available to admin and interviewer roles."
+          eyebrow="Access"
+          title="Submission result"
+        />
+        <div className="mt-6">
+          <EmptyState description="Your current role cannot review interview submissions." title="Result unavailable" />
         </div>
-      </main>
+      </AppShell>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-950/95">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <Link className="text-sm font-medium text-cyan-300 hover:text-cyan-200" href="/interviews">
-              Back to interviews
-            </Link>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">Submission result</h1>
-          </div>
-          {result ? (
+    <AppShell>
+      <PageHeader
+        actions={
+          result ? (
             <Button disabled={isReviewing || result.agent_reviews.length > 0} onClick={() => void handleRunReview()} type="button">
               {isReviewing ? "Reviewing..." : result.agent_reviews.length > 0 ? "Review complete" : "Run agent review"}
             </Button>
-          ) : null}
-        </div>
-      </header>
+          ) : null
+        }
+        description="Review candidate code, agent analysis, score breakdown, AI usage, and telemetry summaries."
+        eyebrow="Submission review"
+        title="Submission result"
+      />
 
-      <section className="mx-auto grid max-w-6xl gap-5 px-6 py-8">
-        {isLoading ? (
-          <div className="rounded-md border border-slate-800 bg-slate-900/70 p-6 text-slate-300">Loading result...</div>
-        ) : null}
-        {error ? (
-          <p className="rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm text-red-200">{error}</p>
-        ) : null}
+      <section className="mt-6 grid max-w-6xl gap-5">
+        <Link className="w-fit text-sm font-medium text-cyan-300 hover:text-cyan-200" href="/interviews">
+          Back to interviews
+        </Link>
+        {isLoading ? <LoadingState label="Loading result..." /> : null}
+        {error ? <ErrorState message={error} /> : null}
         {result ? (
           <>
             <section className="grid gap-4 rounded-md border border-slate-800 bg-slate-900/70 p-5">
@@ -370,7 +369,6 @@ function ResultContent() {
                   <p className="mt-1 text-sm">{result.recommendation ?? "Pending review"}</p>
                 </div>
               </div>
-              <GitHubLinks github={result.github} />
             </section>
 
             <section className="grid gap-4 rounded-md border border-slate-800 bg-slate-900/70 p-5">
@@ -456,7 +454,7 @@ function ResultContent() {
           </>
         ) : null}
       </section>
-    </main>
+    </AppShell>
   );
 }
 
