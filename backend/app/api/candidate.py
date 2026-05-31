@@ -359,6 +359,14 @@ def _github_files_from_changed_snapshots(snapshots: list[SessionFileSnapshot]) -
     ]
 
 
+def _starter_branch_for_submission(session: InterviewSession) -> str | None:
+    scenario = session.interview.scenario
+    project = scenario.project if scenario else None
+    if project is None or project.starter_push_status != "pushed":
+        return None
+    return project.starter_branch_name
+
+
 def _visible_session_snapshots(db: Session, *, session: InterviewSession) -> list[SessionFileSnapshot]:
     ensure_session_file_snapshots(db, session=session)
     return list(
@@ -1053,13 +1061,16 @@ def submit_session_solution(
         candidate_files=submitted_files,
     )
     code = payload.code or _primary_code_from_snapshots(db, session=session)
+    base_branch_name = _starter_branch_for_submission(session)
     try:
         github_result = github_publisher.publish_submission(
             interview_id=session.interview_id,
             session_id=session.id,
+            candidate_email=current_user.email,
             submitted_at=now,
             files=_github_files_from_changed_snapshots(visible_snapshots),
             candidate_notes=payload.notes,
+            base_branch_name=base_branch_name,
         )
     except UnsafeRepositoryFileError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -1073,6 +1084,7 @@ def submit_session_solution(
         submitted_files=submitted_files,
         file_diffs=file_diffs,
         branch_name=github_result.branch_name,
+        base_branch_name=github_result.base_branch_name,
         commit_sha=github_result.commit_sha,
         repository_url=github_result.repository_url,
         pull_request_url=github_result.pull_request_url,
@@ -1099,6 +1111,7 @@ def submit_session_solution(
                 "code_length": len(code),
                 "note_length": len(payload.notes),
                 "submitted_file_count": len(submitted_files),
+                "base_branch_name": github_result.base_branch_name,
                 "changed_file_count": sum(
                     1 for snapshot in visible_snapshots if snapshot.current_content != snapshot.original_content
                 ),

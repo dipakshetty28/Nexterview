@@ -9,6 +9,7 @@ import type {
   InterviewSubmissionResult,
   InviteTokenResponse,
   PublicInvite,
+  ResultsDashboardItem,
   Scenario,
   SessionResult,
   Submission,
@@ -125,6 +126,10 @@ export function getInterviewSubmissions(token: string, interviewId: string): Pro
 
 export function getSessionResult(token: string, sessionId: string): Promise<SessionResult> {
   return apiRequest<SessionResult>(`/api/results/${sessionId}`, { token });
+}
+
+export function getResultsDashboard(token: string): Promise<ResultsDashboardItem[]> {
+  return apiRequest<ResultsDashboardItem[]>("/api/results", { token });
 }
 
 export function runSubmissionReview(token: string, submissionId: string): Promise<SubmissionReviewSummary> {

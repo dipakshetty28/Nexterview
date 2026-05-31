@@ -28,12 +28,17 @@ from app.models.interview import (
 from app.models.user import User, UserRole
 from app.schemas.review import (
     AgentReviewRead,
+    AITranscriptMessageRead,
     AIUsageAnalysisRead,
     FileDiffRead,
     GitHubReviewLinksRead,
+    PromptQualitySummaryRead,
+    ResultsDashboardItemRead,
     ScoreBreakdownItemRead,
     SessionResultRead,
+    SubmittedCodeFileRead,
     SubmissionReviewSummaryRead,
+    TelemetryTimelineEventRead,
 )
 from app.services.review_agents import (
     RepoSubmissionReviewer,
@@ -176,6 +181,7 @@ def _review_context(submission: Submission) -> dict[str, Any]:
         "candidate_notes": submission.notes or session.notes or "",
         "github": {
             "branch_name": submission.branch_name,
+            "base_branch_name": submission.base_branch_name,
             "commit_sha": submission.commit_sha,
             "repository_url": submission.repository_url,
             "pull_request_url": submission.pull_request_url,
@@ -213,11 +219,13 @@ def _original_project_files(scenario: Scenario) -> list[dict[str, Any]]:
 def _ai_transcript(messages: list[AIMessage]) -> list[dict[str, Any]]:
     return [
         {
+            "id": message.id,
             "role": message.role.value,
             "content": message.content,
             "ai_mode": message.ai_mode,
+            "ai_model": message.ai_model,
             "metadata": message.message_metadata,
-            "created_at": message.created_at.isoformat(),
+            "created_at": message.created_at,
         }
         for message in sorted(messages, key=lambda item: item.created_at)
     ]
@@ -226,12 +234,130 @@ def _ai_transcript(messages: list[AIMessage]) -> list[dict[str, Any]]:
 def _telemetry_events(events: list[TelemetryEvent]) -> list[dict[str, Any]]:
     return [
         {
+            "id": event.id,
             "event_type": event.event_type.value,
             "payload": event.payload,
-            "created_at": event.created_at.isoformat(),
+            "created_at": event.created_at,
         }
         for event in sorted(events, key=lambda item: item.created_at)
     ]
+
+
+def _submitted_code_files(submission: Submission) -> list[SubmittedCodeFileRead]:
+    submitted_files = []
+    for submitted_file in submission.submitted_files:
+        path = submitted_file.get("path")
+        content = submitted_file.get("content")
+        language = submitted_file.get("language")
+        file_type = submitted_file.get("file_type")
+        if isinstance(path, str) and isinstance(content, str) and isinstance(language, str):
+            submitted_files.append(
+                SubmittedCodeFileRead(
+                    path=path,
+                    content=content,
+                    language=language,
+                    file_type=file_type if isinstance(file_type, str) else None,
+                )
+            )
+    return sorted(submitted_files, key=lambda item: item.path)
+
+
+def _risk_flags_for_reviews(reviews: list[AgentReview]) -> list[str]:
+    flags: list[str] = []
+    seen: set[str] = set()
+    for review in sorted(reviews, key=lambda item: item.agent_type):
+        for flag in review.risk_flags:
+            cleaned = flag.strip() if isinstance(flag, str) else ""
+            if cleaned and cleaned.lower() not in seen:
+                flags.append(cleaned)
+                seen.add(cleaned.lower())
+    return flags
+
+
+def _prompt_quality_summary(context: dict[str, Any]) -> dict[str, Any]:
+    transcript = [message for message in context.get("ai_chat_transcript", []) if isinstance(message, dict)]
+    telemetry_events = [event for event in context.get("telemetry_events", []) if isinstance(event, dict)]
+    user_messages = [message for message in transcript if message.get("role") == "user"]
+    prompt_texts = [str(message.get("content") or "") for message in user_messages]
+    prompts_with_context = [
+        message
+        for message in user_messages
+        if isinstance(message.get("metadata"), dict) and bool(message["metadata"].get("current_file_path"))
+    ]
+    vague_prompt_count = sum(1 for prompt in prompt_texts if _is_vague_prompt(prompt))
+    validation_prompt_count = sum(
+        1
+        for prompt in prompt_texts
+        if any(keyword in prompt.lower() for keyword in ["test", "verify", "validate", "edge case", "regression"])
+    )
+    test_run_count = sum(1 for event in telemetry_events if event.get("event_type") == "test_run")
+    average_prompt_length = round(sum(len(prompt) for prompt in prompt_texts) / len(prompt_texts), 1) if prompt_texts else 0.0
+
+    strengths = []
+    risks = []
+    if prompts_with_context:
+        strengths.append("Candidate supplied file context in AI prompts.")
+    if validation_prompt_count or test_run_count:
+        strengths.append("Candidate showed validation intent through prompts or test runs.")
+    if not prompt_texts:
+        risks.append("No AI prompts were available for prompting-skill evaluation.")
+    if vague_prompt_count:
+        risks.append("Some prompts were short or underspecified.")
+    if prompt_texts and not validation_prompt_count and not test_run_count:
+        risks.append("Prompting history has limited verification signals.")
+
+    if not prompt_texts:
+        summary = "Candidate did not use the AI copilot in this session."
+    elif risks and not strengths:
+        summary = "Candidate prompting was limited and needs stronger context plus validation."
+    elif risks:
+        summary = "Candidate used AI with some useful context, but prompt quality had review risks."
+    else:
+        summary = "Candidate prompts included useful context and validation-oriented signals."
+
+    return {
+        "candidate_prompt_count": len(prompt_texts),
+        "prompts_with_file_context": len(prompts_with_context),
+        "vague_prompt_count": vague_prompt_count,
+        "validation_prompt_count": validation_prompt_count,
+        "average_prompt_length": average_prompt_length,
+        "summary": summary,
+        "strengths": strengths,
+        "risks": risks,
+    }
+
+
+def _is_vague_prompt(prompt: str) -> bool:
+    cleaned = " ".join(prompt.lower().split())
+    if len(cleaned) < 35:
+        return True
+    vague_phrases = {"fix this", "help me", "what is wrong", "give me code", "solve this"}
+    return cleaned in vague_phrases
+
+
+def _dashboard_item_for_session(session: InterviewSession) -> ResultsDashboardItemRead:
+    submission = session.submission
+    score = submission.score if submission and submission.score else None
+    reviews = submission.agent_reviews if submission else []
+    scenario = session.interview.scenario
+    return ResultsDashboardItemRead(
+        session_id=session.id,
+        submission_id=submission.id if submission else None,
+        interview_id=session.interview_id,
+        candidate_id=session.candidate_id,
+        candidate_email=session.candidate.email,
+        candidate_name=session.candidate.full_name,
+        role_title=session.interview.role_title,
+        scenario_title=scenario.title if scenario else None,
+        status=session.status.value,
+        submitted_at=session.submitted_at,
+        reviewed_at=session.reviewed_at,
+        weighted_score=score.weighted_score if score else None,
+        recommendation=score.recommendation if score else None,
+        push_status=submission.push_status if submission else None,
+        pull_request_url=submission.pull_request_url if submission else None,
+        risk_flags=_risk_flags_for_reviews(reviews),
+    )
 
 
 def _summary_for_submission(submission: Submission, *, context: dict[str, Any] | None = None) -> SubmissionReviewSummaryRead:
@@ -258,6 +384,7 @@ def _summary_for_submission(submission: Submission, *, context: dict[str, Any] |
         file_diffs=file_diffs,
         github=GitHubReviewLinksRead(
             branch_name=submission.branch_name,
+            base_branch_name=submission.base_branch_name,
             commit_sha=submission.commit_sha,
             repository_url=submission.repository_url,
             pull_request_url=submission.pull_request_url,
@@ -280,6 +407,7 @@ def _session_result_for_submission(submission: Submission) -> SessionResultRead:
     scenario = session.interview.scenario
     if scenario is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Submission has no generated scenario.")
+    review_context = _review_context(submission)
     return SessionResultRead(
         **summary.model_dump(),
         candidate_email=session.candidate.email,
@@ -290,6 +418,15 @@ def _session_result_for_submission(submission: Submission) -> SessionResultRead:
         bug_description=scenario.bug_description,
         feature_request=scenario.feature_request,
         validation_instructions=scenario.validation_instructions,
+        submitted_files=_submitted_code_files(submission),
+        ai_chat_transcript=[
+            AITranscriptMessageRead.model_validate(message) for message in _ai_transcript(session.ai_messages)
+        ],
+        telemetry_timeline=[
+            TelemetryTimelineEventRead.model_validate(event) for event in _telemetry_events(session.telemetry_events)
+        ],
+        prompt_quality_summary=PromptQualitySummaryRead.model_validate(_prompt_quality_summary(review_context)),
+        risk_flags=_risk_flags_for_reviews(submission.agent_reviews),
     )
 
 
@@ -448,6 +585,33 @@ def get_submission_reviews(
 ) -> SubmissionReviewSummaryRead:
     submission = _get_submission_for_reviewer(db, submission_id=submission_id, current_user=current_user)
     return _summary_for_submission(submission)
+
+
+@router.get("/results", response_model=list[ResultsDashboardItemRead])
+def list_results_dashboard(
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[ResultsDashboardItemRead]:
+    organization_ids = _ensure_internal_reviewer(current_user)
+    try:
+        sessions = db.execute(
+            select(InterviewSession)
+            .options(
+                selectinload(InterviewSession.candidate),
+                selectinload(InterviewSession.interview).selectinload(Interview.scenario),
+                selectinload(InterviewSession.submission).selectinload(Submission.score),
+                selectinload(InterviewSession.submission).selectinload(Submission.agent_reviews),
+            )
+            .where(InterviewSession.organization_id.in_(organization_ids))
+            .order_by(InterviewSession.updated_at.desc())
+        ).scalars()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to load results dashboard.") from exc
+    return [_dashboard_item_for_session(session) for session in sessions]
 
 
 @router.get("/results/{session_id}", response_model=SessionResultRead)

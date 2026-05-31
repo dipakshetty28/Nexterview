@@ -1,11 +1,11 @@
 # Nexterview
 
-Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation and copilot responses, candidate invite/session access, a candidate multi-file interview workspace with telemetry, and optional GitHub branch/commit/PR creation on final submission.
+Nexterview is the foundation for an AI-native engineering interview platform. This increment includes real email/password authentication, organization membership, JWT access tokens, bcrypt password hashing, role-based access control, interviewer interview management, backend-only AI scenario generation and copilot responses, candidate invite/session access, a candidate multi-file interview workspace with telemetry, optional GitHub starter-branch creation on scenario generation, and candidate-specific GitHub branch/PR creation on final submission.
 
 ## Current Scope
 
 - FastAPI backend with SQLAlchemy 2, Alembic, Pydantic v2, and PostgreSQL
-- Next.js 15, React 19, TypeScript, Tailwind CSS, and App Router frontend
+- Next.js 15, React 19, TypeScript, Tailwind CSS, Recharts, and App Router frontend
 - Docker Compose for PostgreSQL, Redis, backend, and frontend
 - Health endpoint at `GET /api/health`
 - Auth endpoints:
@@ -26,6 +26,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - Internal repo-review endpoints for `ADMIN` and `INTERVIEWER` users:
   - `POST /api/submissions/{id}/review`
   - `GET /api/submissions/{id}/reviews`
+  - `GET /api/results`
   - `GET /api/results/{session_id}`
 - Candidate invite/session endpoints:
   - `GET /api/invite/{token}`
@@ -42,8 +43,8 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - OpenAI Responses API integration on the backend with strict Pydantic JSON validation for generated repo projects
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, interviewer management route, invite page, repo submission result page, and Monaco-powered candidate workspace with a nested file tree, pre-provisioned environment messaging, snapshot autosave, markdown AI copilot, notes, pass/fail run output, and final submit
-- Optional GitHub submission publisher that creates a branch, commits changed visible workspace files, optionally opens a pull request, and preserves database submissions when GitHub is not configured or push fails
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, interviewer results dashboard with Recharts score/status visualizations, invite page, repo submission result page, and Monaco-powered candidate workspace with a nested file tree, pre-provisioned environment messaging, snapshot autosave, markdown AI copilot, notes, pass/fail run output, and final submit
+- Optional GitHub publishing that creates a starter branch from the configured default branch when a scenario is generated, then creates a candidate-specific submission branch and pull request against that starter branch so reviewers see only candidate changes
 - Structured AI copilot responses with markdown answers, suggested file chips, confidence, risk flags, and telemetry for later prompting-skill analytics
 - Repo-aware multi-agent review that evaluates original project files, submitted files, generated diffs, AI transcript, telemetry, test outputs, candidate notes, and GitHub branch/PR links while allowing internal-only rubric context
 - V1 post-submit review scheduling uses FastAPI background tasks; Redis-backed RQ/Celery remains a future production hardening step
@@ -100,7 +101,7 @@ Do not use `change-me` secrets outside local development. `OPENAI_API_KEY` is re
 
 `BACKEND_CORS_ORIGINS` is the production-ready CORS allowlist. Keep local browser origins in it for development, and set deployed frontend origins explicitly in production.
 
-GitHub submission publishing is optional. Leave `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPO` empty to store submitted files only in PostgreSQL. To enable branch pushes, set those values on the backend. The token should have access to the configured repository and permission to read repository contents, create branches, and write contents; if `GITHUB_CREATE_PR=true`, it also needs pull request write permission. The token is read only by the backend and must never be exposed through frontend environment variables.
+GitHub publishing is optional. Leave `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPO` empty to store generated projects and submitted files only in PostgreSQL. To enable GitHub publishing, set those values on the backend. When a scenario is generated, Nexterview creates a starter branch from `GITHUB_DEFAULT_BRANCH` containing the generated repo project files, including hidden validation files for reviewer context. When a candidate submits, Nexterview creates a candidate-specific branch from the starter branch, commits changed visible workspace files, and creates a pull request back to the starter branch so the PR diff isolates candidate changes. Candidate branches include a sanitized candidate email slug plus interview/session identifiers. The token should have access to the configured repository and permission to read repository contents, create branches, write contents, and create pull requests. `GITHUB_CREATE_PR=true` still enables pull requests for legacy fallback submissions when no starter branch exists. The token is read only by the backend and must never be exposed through frontend environment variables.
 
 ## Local Setup
 
@@ -282,7 +283,7 @@ The response includes:
 
 The AI generation response must be strict JSON shaped as `{ "scenario": ..., "project": ..., "files": [...] }`. The backend validates that payload with Pydantic, requires 5 to 12 files, requires a JSON seed data file, requires a test or validation file, and requires `README.md` or `TASK.md`. Supported generation targets are React + Next.js, Python + FastAPI, and Node.js + Express; unknown stacks fall back to a generic TypeScript/Node prompt.
 
-The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Generated repo projects are stored as `scenario_projects` and `project_files`. When a candidate starts an interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a deterministic FastAPI orders project with an intentional quantity-calculation bug and a status-filter feature request.
+The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Generated repo projects are stored as `scenario_projects` and `project_files`. If GitHub publishing is configured, scenario generation also creates a starter branch from `GITHUB_DEFAULT_BRANCH` and stores `starter_branch_name`, `starter_commit_sha`, `starter_repository_url`, `starter_push_status`, and `starter_push_error` on `scenario_projects`. Scenario generation still succeeds when GitHub is not configured or publishing fails. When a candidate starts an interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a deterministic FastAPI orders project with an intentional quantity-calculation bug and a status-filter feature request.
 
 Read candidate submission results for an interview:
 
@@ -291,7 +292,7 @@ GET /api/interviews/{id}/submissions
 Authorization: Bearer <interviewer_access_token>
 ```
 
-The response includes each candidate session status plus final submission metadata when available: `branch_name`, `commit_sha`, `repository_url`, `pull_request_url`, `push_status`, and `push_error`. This endpoint is for `ADMIN` and `INTERVIEWER` users in the interview organization.
+The response includes each candidate session status plus final submission metadata when available: `branch_name`, `base_branch_name`, `commit_sha`, `repository_url`, `pull_request_url`, `push_status`, and `push_error`. This endpoint is for `ADMIN` and `INTERVIEWER` users in the interview organization.
 
 Run internal review agents for a submitted repo:
 
@@ -300,13 +301,16 @@ POST /api/submissions/{submission_id}/review
 Authorization: Bearer <interviewer_access_token>
 ```
 
-The review context includes the scenario, candidate instructions, bug description, feature request, validation instructions, original project files, submitted files, file-level diffs, AI chat transcript, telemetry events, test run outputs, candidate notes/root cause summary, and GitHub branch or PR links when available. Internal review agents may use `hidden_rubric`, `hidden_evaluation_points`, and `interviewer_rubric`; the candidate-facing copilot never receives those fields.
+The review context includes the scenario, candidate instructions, bug description, feature request, validation instructions, original project files, submitted files, file-level diffs, AI chat transcript, telemetry events, test run outputs, candidate notes/root cause summary, and GitHub starter/submission branch or PR links when available. Internal review agents may use `hidden_rubric`, `hidden_evaluation_points`, and `interviewer_rubric`; the candidate-facing copilot never receives those fields.
 
 Candidate submission automatically schedules the same internal review flow after the final solution is saved. The manual `POST /api/submissions/{submission_id}/review` endpoint remains available and idempotent for retries or older submissions. V1 uses FastAPI background tasks rather than RQ/Celery so local demos do not require worker processes; production queue hardening is still future work.
 
 Read review results:
 
 ```http
+GET /api/results
+Authorization: Bearer <interviewer_access_token>
+
 GET /api/submissions/{submission_id}/reviews
 Authorization: Bearer <interviewer_access_token>
 
@@ -314,7 +318,9 @@ GET /api/results/{session_id}
 Authorization: Bearer <interviewer_access_token>
 ```
 
-The result payload includes changed files, unified diffs, GitHub push metadata, agent reviews, weighted score breakdown, AI usage analysis, submitted test output, and candidate notes. The backend stores the final weighted result in the `scores` table. The weighted score uses the current rubric weights: Code Quality 15%, Correctness 20%, Architecture 15%, Debugging 15%, AI Usage 15%, Prompting Skill 10%, and Communication 10%. Security and Performance agents report risks but are not separate weighted categories.
+`GET /api/results` returns an organization-scoped interviewer dashboard list of interview sessions with candidate info, status, submitted/reviewed timestamps, final score, recommendation, GitHub PR status, and flattened risk flags. `GET /api/results/{session_id}` returns the result detail payload with changed files, submitted code files, unified diffs, GitHub push metadata including the submission branch and PR base branch, agent reviews, weighted score breakdown, AI chat transcript, telemetry timeline, prompt quality summary, AI usage analysis, submitted test output, candidate notes, and cross-agent risk flags. The backend stores the final weighted result in the `scores` table. The weighted score uses the current rubric weights: Code Quality 15%, Correctness 20%, Architecture 15%, Debugging 15%, AI Usage 15%, Prompting Skill 10%, and Communication 10%. Security and Performance agents report risks but are not separate weighted categories.
+
+Candidates cannot access review endpoints or the interviewer results dashboard unless a future explicit sharing flow is added.
 
 Delete an interview:
 
@@ -460,7 +466,7 @@ Content-Type: application/json
 }
 ```
 
-For multi-file sessions, `code` and `submitted_files` are optional. If `submitted_files` is omitted and the session has file snapshots, the backend stores the current visible session snapshots as the submission. Single-file clients can continue sending `code`. When GitHub is configured, the backend creates a branch named `interview-{interview_id}-session-{session_id}-{timestamp}`, commits changed visible workspace files, pushes the branch, and optionally creates a pull request. If GitHub is disabled or the push fails, the submission still succeeds and stores submitted files in PostgreSQL with `push_status` and a safe `push_error` when applicable. Hidden files, unsafe paths, environment files, and private key material are not committed.
+For multi-file sessions, `code` and `submitted_files` are optional. If `submitted_files` is omitted and the session has file snapshots, the backend stores the current visible session snapshots as the submission. Single-file clients can continue sending `code`. When GitHub is configured and the generated scenario has a pushed starter branch, the backend creates a candidate branch named `candidate-{candidate_slug}-interview-{interview_id_short}-session-{session_id_short}-{timestamp}`, commits changed visible workspace files on top of the starter branch, pushes the branch, and creates a pull request against the starter branch. If the starter branch is unavailable, the submission still falls back to the configured default branch behavior and only creates a fallback PR when `GITHUB_CREATE_PR=true`. If GitHub is disabled or the push fails, the submission still succeeds and stores submitted files in PostgreSQL with `push_status` and a safe `push_error` when applicable. Hidden files, unsafe paths, environment files, and private key material are not committed from candidate submissions.
 
 Final submissions also store generated file-level diffs. After the submission is saved, Nexterview schedules the internal multi-agent review, stores per-agent records in `agent_reviews`, and stores the final weighted score in `scores`. Interviewers can open `/results/{session_id}` from the interview detail page, inspect changed files and diffs, review AI usage analysis, rerun the review if needed, and see the weighted score breakdown plus hiring recommendation.
 

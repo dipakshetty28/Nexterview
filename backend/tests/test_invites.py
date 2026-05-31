@@ -11,6 +11,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.candidate import get_candidate_copilot, get_github_submission_publisher
+from app.api.interviews import get_github_project_publisher
 from app.api.reviews import get_review_agent_runner
 from app.core.config import settings
 from app.core.security import hash_password
@@ -29,6 +30,7 @@ from app.models import (
     OrganizationMember,
     ProjectFile,
     Scenario,
+    ScenarioProject,
     Score,
     SessionFileSnapshot,
     Submission,
@@ -53,6 +55,7 @@ _ = (
     OrganizationMember,
     ProjectFile,
     Scenario,
+    ScenarioProject,
     Score,
     SessionFileSnapshot,
     Submission,
@@ -157,6 +160,62 @@ def _create_ready_interview(client: TestClient, *, token: str) -> str:
     )
     assert scenario_response.status_code == 200
     return interview_id
+
+
+def test_scenario_generation_publishes_starter_branch_when_github_configured(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    create_response = client.post(
+        "/api/interviews",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "role_title": "Backend Engineer",
+            "seniority": "Senior",
+            "stack": ["Python", "FastAPI", "PostgreSQL"],
+            "difficulty": "Intermediate",
+            "interview_type": "Backend debugging",
+            "duration_minutes": 75,
+            "allowed_ai_mode": "Pair Programmer Mode",
+            "evaluation_criteria": ["Correctness", "Debugging", "AI validation"],
+        },
+    )
+    assert create_response.status_code == 201
+    interview_id = create_response.json()["id"]
+
+    class StubProjectPublisher:
+        def __init__(self) -> None:
+            self.paths: list[str] = []
+
+        def publish_scenario_project(self, **kwargs: object) -> GitHubSubmissionPushResult:
+            assert str(kwargs["interview_id"]) == interview_id
+            files = kwargs["files"]
+            assert isinstance(files, list)
+            self.paths = sorted(file.path for file in files)
+            return GitHubSubmissionPushResult(
+                status="pushed",
+                branch_name="scenario-interview-starter",
+                commit_sha="starter123",
+                repository_url="https://github.com/example/repo",
+            )
+
+    publisher = StubProjectPublisher()
+    app.dependency_overrides[get_github_project_publisher] = lambda: publisher
+    scenario_response = client.post(
+        f"/api/interviews/{interview_id}/generate-scenario",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert scenario_response.status_code == 200
+    project = scenario_response.json()["project"]
+    assert project["starter_push_status"] == "pushed"
+    assert project["starter_branch_name"] == "scenario-interview-starter"
+    assert project["starter_commit_sha"] == "starter123"
+    assert project["starter_repository_url"] == "https://github.com/example/repo"
+    assert "app/main.py" in publisher.paths
+    assert "tests/test_orders_hidden.py" in publisher.paths
 
 
 def _start_workspace_session(client: TestClient, *, candidate_email: str) -> tuple[str, str, dict[str, object], dict[str, object]]:
@@ -673,6 +732,15 @@ def test_candidate_submission_pushes_changed_files_to_github_when_configured(
         candidate_email="github-success@example.com",
     )
     _fix_order_workspace(client, candidate_token=candidate_token, session_id=session["id"], workspace=workspace)
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        project = db.execute(select(ScenarioProject)).scalar_one()
+        project.starter_branch_name = "scenario-interview-starter"
+        project.starter_push_status = "pushed"
+        db.commit()
+    finally:
+        db.close()
 
     class StubGitHubPublisher:
         def publish_submission(self, **kwargs: object) -> GitHubSubmissionPushResult:
@@ -682,9 +750,12 @@ def test_candidate_submission_pushes_changed_files_to_github_when_configured(
             assert sorted(paths) == ["app/main.py", "app/services/orders.py"]
             assert str(kwargs["interview_id"]) == session["interview_id"]
             assert str(kwargs["session_id"]) == session["id"]
+            assert kwargs["candidate_email"] == "github-success@example.com"
+            assert kwargs["base_branch_name"] == "scenario-interview-starter"
             return GitHubSubmissionPushResult(
                 status="pushed",
                 branch_name="interview-branch",
+                base_branch_name="scenario-interview-starter",
                 commit_sha="abc123",
                 repository_url="https://github.com/example/repo",
                 pull_request_url="https://github.com/example/repo/pull/10",
@@ -700,6 +771,7 @@ def test_candidate_submission_pushes_changed_files_to_github_when_configured(
     submission = submit_response.json()
     assert submission["push_status"] == "pushed"
     assert submission["branch_name"] == "interview-branch"
+    assert submission["base_branch_name"] == "scenario-interview-starter"
     assert submission["commit_sha"] == "abc123"
     assert submission["pull_request_url"] == "https://github.com/example/repo/pull/10"
 
@@ -711,6 +783,7 @@ def test_candidate_submission_pushes_changed_files_to_github_when_configured(
     results = results_response.json()
     assert results[0]["push_status"] == "pushed"
     assert results[0]["branch_name"] == "interview-branch"
+    assert results[0]["base_branch_name"] == "scenario-interview-starter"
     assert results[0]["pull_request_url"] == "https://github.com/example/repo/pull/10"
 
 
@@ -924,7 +997,7 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
                     strengths=[f"{agent['label']} reviewed repo evidence."],
                     weaknesses=[],
                     evidence=["Diffs, AI transcript, telemetry, and notes were included."],
-                    risk_flags=[],
+                    risk_flags=["Review input validation before hiring decision."] if agent["type"] == "security" else [],
                     recommendation="hire" if agent["type"] == "hiring_recommendation" else "strong signal",
                     explanation=f"{agent['label']} completed the mocked review.",
                     raw_response={"source": "mock"},
@@ -973,6 +1046,35 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
     assert result["changed_files"] == ["app/main.py", "app/services/orders.py"]
     assert result["github"]["pull_request_url"] == "https://github.com/example/repo/pull/11"
     assert len(result["score_breakdown"]) == 7
+    assert "Review input validation before hiring decision." in result["risk_flags"]
+    assert "app/main.py" in {file["path"] for file in result["submitted_files"]}
+    assert [message["role"] for message in result["ai_chat_transcript"]] == ["user", "assistant"]
+    assert any(event["event_type"] == "test_run" for event in result["telemetry_timeline"])
+    assert result["prompt_quality_summary"]["candidate_prompt_count"] == 1
+    assert result["prompt_quality_summary"]["prompts_with_file_context"] == 1
+
+    dashboard_response = client.get(
+        "/api/results",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert len(dashboard) == 1
+    assert dashboard[0]["session_id"] == session["id"]
+    assert dashboard[0]["weighted_score"] == 82
+    assert dashboard[0]["recommendation"] == "hire"
+    assert dashboard[0]["risk_flags"] == ["Review input validation before hiring decision."]
+
+    candidate_dashboard_response = client.get(
+        "/api/results",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert candidate_dashboard_response.status_code == 403
+    candidate_result_response = client.get(
+        f"/api/results/{session['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert candidate_result_response.status_code == 403
 
     db_generator = app.dependency_overrides[get_db]()
     db = next(db_generator)

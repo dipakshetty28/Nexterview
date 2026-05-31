@@ -136,6 +136,11 @@ class ScenarioProject(TimestampMixin, Base):
     entrypoint: Mapped[str | None] = mapped_column(String(500), nullable=True)
     package_manager: Mapped[str | None] = mapped_column(String(80), nullable=True)
     framework: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    starter_branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    starter_commit_sha: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    starter_repository_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    starter_push_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    starter_push_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     scenario: Mapped[Scenario] = relationship("Scenario", back_populates="project")
     files: Mapped[list[ProjectFile]] = relationship(
@@ -376,6 +381,7 @@ class Submission(TimestampMixin, Base):
     submitted_files: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
     file_diffs: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    base_branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_sha: Mapped[str | None] = mapped_column(String(80), nullable=True)
     repository_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     pull_request_url: Mapped[str | None] = mapped_column(String(500), nullable=True)

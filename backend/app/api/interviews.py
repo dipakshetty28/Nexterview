@@ -26,6 +26,7 @@ from app.models.user import User, UserRole
 from app.schemas.invite import InviteCreateRequest, InviteTokenRead
 from app.schemas.interview import InterviewCreateRequest, InterviewRead, InterviewSubmissionResultRead
 from app.schemas.scenario import ScenarioRead
+from app.services.github import GitHubSubmissionFile, GitHubSubmissionPublisher
 from app.services.invites import generate_invite_token, hash_invite_token
 from app.services.scenario_projects import upsert_scenario_project
 from app.services.scenario_generator import ScenarioGenerationResult, ScenarioGenerator
@@ -35,6 +36,10 @@ router = APIRouter(prefix="/api/interviews", tags=["interviews"])
 
 def get_scenario_generator() -> ScenarioGenerator:
     return ScenarioGenerator()
+
+
+def get_github_project_publisher() -> GitHubSubmissionPublisher:
+    return GitHubSubmissionPublisher()
 
 
 def _organization_ids_for(user: User) -> list[UUID]:
@@ -244,6 +249,7 @@ def list_interview_submissions(
             submitted_at=session.submitted_at,
             submission_id=submission.id if submission else None,
             branch_name=submission.branch_name if submission else None,
+            base_branch_name=submission.base_branch_name if submission else None,
             commit_sha=submission.commit_sha if submission else None,
             repository_url=submission.repository_url if submission else None,
             pull_request_url=submission.pull_request_url if submission else None,
@@ -332,6 +338,7 @@ def generate_scenario(
     current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
     db: Annotated[Session, Depends(get_db)],
     generator: Annotated[ScenarioGenerator, Depends(get_scenario_generator)],
+    github_publisher: Annotated[GitHubSubmissionPublisher, Depends(get_github_project_publisher)],
 ) -> ScenarioRead:
     interview = _get_interview_for_user(db, interview_id, current_user)
     result: ScenarioGenerationResult = generator.generate(interview)
@@ -362,7 +369,22 @@ def generate_scenario(
 
     try:
         db.flush()
-        upsert_scenario_project(db, scenario=scenario, project_payload=result.scenario.project)
+        project = upsert_scenario_project(db, scenario=scenario, project_payload=result.scenario.project)
+        if project is not None and result.scenario.project is not None:
+            github_result = github_publisher.publish_scenario_project(
+                interview_id=interview.id,
+                scenario_id=scenario.id,
+                generated_at=datetime.now(timezone.utc),
+                files=[
+                    GitHubSubmissionFile(path=project_file.path, content=project_file.content)
+                    for project_file in result.scenario.project.files
+                ],
+            )
+            project.starter_branch_name = github_result.branch_name
+            project.starter_commit_sha = github_result.commit_sha
+            project.starter_repository_url = github_result.repository_url
+            project.starter_push_status = github_result.status
+            project.starter_push_error = github_result.error
         db.commit()
     except ProgrammingError as exc:
         db.rollback()

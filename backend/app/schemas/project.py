@@ -237,6 +237,11 @@ class ScenarioProjectRead(BaseModel):
     entrypoint: str | None
     package_manager: str | None
     framework: str | None
+    starter_branch_name: str | None
+    starter_commit_sha: str | None
+    starter_repository_url: str | None
+    starter_push_status: str | None
+    starter_push_error: str | None
     files: list[ProjectFileRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

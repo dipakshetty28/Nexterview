@@ -57,6 +57,11 @@ export type ScenarioProject = {
   run_command: string | null;
   test_command: string | null;
   entrypoint: string | null;
+  starter_branch_name?: string | null;
+  starter_commit_sha?: string | null;
+  starter_repository_url?: string | null;
+  starter_push_status?: string | null;
+  starter_push_error?: string | null;
   files: ProjectFile[];
   created_at?: string;
   updated_at?: string;
@@ -145,6 +150,7 @@ export type InterviewSubmissionResult = {
   submitted_at: string | null;
   submission_id: string | null;
   branch_name: string | null;
+  base_branch_name: string | null;
   commit_sha: string | null;
   repository_url: string | null;
   pull_request_url: string | null;
@@ -192,6 +198,7 @@ export type ScoreBreakdownItem = {
 
 export type GitHubReviewLinks = {
   branch_name: string | null;
+  base_branch_name: string | null;
   commit_sha: string | null;
   repository_url: string | null;
   pull_request_url: string | null;
@@ -207,6 +214,60 @@ export type AIUsageAnalysis = {
   response_confidence_values: string[];
   validated_suggestions: boolean;
   summary: string;
+};
+
+export type SubmittedCodeFile = {
+  path: string;
+  content: string;
+  language: string;
+  file_type: string | null;
+};
+
+export type AITranscriptMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  ai_mode: string;
+  ai_model: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type TelemetryTimelineEvent = {
+  id: string;
+  event_type: TelemetryEventType;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type PromptQualitySummary = {
+  candidate_prompt_count: number;
+  prompts_with_file_context: number;
+  vague_prompt_count: number;
+  validation_prompt_count: number;
+  average_prompt_length: number;
+  summary: string;
+  strengths: string[];
+  risks: string[];
+};
+
+export type ResultsDashboardItem = {
+  session_id: string;
+  submission_id: string | null;
+  interview_id: string;
+  candidate_id: string;
+  candidate_email: string;
+  candidate_name: string;
+  role_title: string;
+  scenario_title: string | null;
+  status: "invited" | "started" | "submitted" | "reviewed";
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  weighted_score: number | null;
+  recommendation: string | null;
+  push_status: string | null;
+  pull_request_url: string | null;
+  risk_flags: string[];
 };
 
 export type SubmissionReviewSummary = {
@@ -236,6 +297,11 @@ export type SessionResult = SubmissionReviewSummary & {
   bug_description: string;
   feature_request: string;
   validation_instructions: string;
+  submitted_files: SubmittedCodeFile[];
+  ai_chat_transcript: AITranscriptMessage[];
+  telemetry_timeline: TelemetryTimelineEvent[];
+  prompt_quality_summary: PromptQualitySummary;
+  risk_flags: string[];
 };
 
 export type InterviewCreateInput = {
@@ -391,6 +457,7 @@ export type Submission = {
   submitted_files: Array<Record<string, unknown>>;
   file_diffs: Array<Record<string, unknown>>;
   branch_name: string | null;
+  base_branch_name: string | null;
   commit_sha: string | null;
   repository_url: string | null;
   pull_request_url: string | null;

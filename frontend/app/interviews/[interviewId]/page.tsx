@@ -30,7 +30,15 @@ function fileTone(file: ProjectFile): string {
   return "border-cyan-900/50 bg-cyan-950/20 text-cyan-100";
 }
 
+function starterBranchUrl(project: ScenarioProject): string | null {
+  if (!project.starter_repository_url || !project.starter_branch_name) {
+    return null;
+  }
+  return `${project.starter_repository_url}/tree/${encodeURIComponent(project.starter_branch_name)}`;
+}
+
 function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
+  const starterHref = starterBranchUrl(project);
   return (
     <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -43,6 +51,16 @@ function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
         <div className="grid gap-1 text-xs text-slate-400 md:text-right">
           <span>Environment: pre-provisioned</span>
           <span>Checks: pass/fail runner configured</span>
+          {project.starter_push_status === "pushed" ? (
+            starterHref ? (
+              <a className="font-medium text-cyan-300 hover:text-cyan-200" href={starterHref}>
+                Starter branch: {project.starter_branch_name}
+              </a>
+            ) : (
+              <span>Starter branch: {project.starter_branch_name}</span>
+            )
+          ) : null}
+          {project.starter_push_status === "failed" ? <span className="text-amber-300">Starter branch push failed</span> : null}
         </div>
       </div>
       <div className="grid gap-2">
@@ -92,6 +110,7 @@ function GitHubSubmissionLinks({ submission }: { submission: InterviewSubmission
             Pull request
           </a>
         ) : null}
+        {submission.base_branch_name ? <span className="text-xs text-slate-500">Base: {submission.base_branch_name}</span> : null}
       </div>
     );
   }

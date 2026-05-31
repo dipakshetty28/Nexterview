@@ -47,6 +47,7 @@ class ScoreBreakdownItemRead(BaseModel):
 
 class GitHubReviewLinksRead(BaseModel):
     branch_name: str | None
+    base_branch_name: str | None
     commit_sha: str | None
     repository_url: str | None
     pull_request_url: str | None
@@ -62,6 +63,60 @@ class AIUsageAnalysisRead(BaseModel):
     response_confidence_values: list[str]
     validated_suggestions: bool
     summary: str
+
+
+class SubmittedCodeFileRead(BaseModel):
+    path: str
+    content: str
+    language: str
+    file_type: str | None = None
+
+
+class AITranscriptMessageRead(BaseModel):
+    id: UUID
+    role: str
+    content: str
+    ai_mode: str
+    ai_model: str | None
+    metadata: dict[str, Any]
+    created_at: datetime
+
+
+class TelemetryTimelineEventRead(BaseModel):
+    id: UUID
+    event_type: str
+    payload: dict[str, Any]
+    created_at: datetime
+
+
+class PromptQualitySummaryRead(BaseModel):
+    candidate_prompt_count: int
+    prompts_with_file_context: int
+    vague_prompt_count: int
+    validation_prompt_count: int
+    average_prompt_length: float
+    summary: str
+    strengths: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+
+
+class ResultsDashboardItemRead(BaseModel):
+    session_id: UUID
+    submission_id: UUID | None
+    interview_id: UUID
+    candidate_id: UUID
+    candidate_email: str
+    candidate_name: str
+    role_title: str
+    scenario_title: str | None
+    status: str
+    submitted_at: datetime | None
+    reviewed_at: datetime | None
+    weighted_score: float | None
+    recommendation: str | None
+    push_status: str | None
+    pull_request_url: str | None
+    risk_flags: list[str] = Field(default_factory=list)
 
 
 class SubmissionReviewSummaryRead(BaseModel):
@@ -91,3 +146,8 @@ class SessionResultRead(SubmissionReviewSummaryRead):
     bug_description: str
     feature_request: str
     validation_instructions: str
+    submitted_files: list[SubmittedCodeFileRead] = Field(default_factory=list)
+    ai_chat_transcript: list[AITranscriptMessageRead] = Field(default_factory=list)
+    telemetry_timeline: list[TelemetryTimelineEventRead] = Field(default_factory=list)
+    prompt_quality_summary: PromptQualitySummaryRead
+    risk_flags: list[str] = Field(default_factory=list)

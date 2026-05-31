@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
+import re
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 import httpx
@@ -29,6 +31,7 @@ class GitHubSubmissionFile:
 class GitHubSubmissionPushResult:
     status: str
     branch_name: str | None = None
+    base_branch_name: str | None = None
     commit_sha: str | None = None
     repository_url: str | None = None
     pull_request_url: str | None = None
@@ -56,6 +59,7 @@ _SECRET_ASSIGNMENT_MARKERS = (
     "OPENAI_API_KEY=",
     "JWT_SECRET=",
 )
+_BRANCH_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 def validate_repository_file(path: str, content: str) -> str:
@@ -79,11 +83,34 @@ def validate_repository_file(path: str, content: str) -> str:
     return cleaned
 
 
-def build_submission_branch_name(*, interview_id: UUID, session_id: UUID, submitted_at: datetime) -> str:
-    if submitted_at.tzinfo is None:
-        submitted_at = submitted_at.replace(tzinfo=timezone.utc)
-    timestamp = submitted_at.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S")
-    return f"interview-{interview_id}-session-{session_id}-{timestamp}"
+def _timestamp_utc(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S")
+
+
+def _branch_slug(value: str, *, fallback: str, max_length: int = 48) -> str:
+    slug = _BRANCH_SLUG_RE.sub("-", value.strip().lower()).strip("-")
+    if not slug:
+        slug = fallback
+    return slug[:max_length].strip("-") or fallback
+
+
+def build_scenario_branch_name(*, interview_id: UUID, scenario_id: UUID, generated_at: datetime) -> str:
+    timestamp = _timestamp_utc(generated_at)
+    return f"scenario-interview-{str(interview_id)[:8]}-{str(scenario_id)[:8]}-{timestamp}"
+
+
+def build_submission_branch_name(
+    *,
+    interview_id: UUID,
+    session_id: UUID,
+    candidate_email: str,
+    submitted_at: datetime,
+) -> str:
+    timestamp = _timestamp_utc(submitted_at)
+    candidate_slug = _branch_slug(candidate_email, fallback="candidate")
+    return f"candidate-{candidate_slug}-interview-{str(interview_id)[:8]}-session-{str(session_id)[:8]}-{timestamp}"
 
 
 class GitHubSubmissionPublisher:
@@ -113,9 +140,11 @@ class GitHubSubmissionPublisher:
         *,
         interview_id: UUID,
         session_id: UUID,
+        candidate_email: str,
         submitted_at: datetime,
         files: list[GitHubSubmissionFile],
         candidate_notes: str,
+        base_branch_name: str | None = None,
     ) -> GitHubSubmissionPushResult:
         safe_files = [
             GitHubSubmissionFile(path=validate_repository_file(file.path, file.content), content=file.content)
@@ -123,20 +152,94 @@ class GitHubSubmissionPublisher:
         ]
         repository_url = self.repository_url
         if not self.is_configured:
-            return GitHubSubmissionPushResult(status="not_configured", repository_url=repository_url)
+            return GitHubSubmissionPushResult(
+                status="not_configured",
+                base_branch_name=base_branch_name,
+                repository_url=repository_url,
+            )
         if not safe_files:
-            return GitHubSubmissionPushResult(status="no_changes", repository_url=repository_url)
+            return GitHubSubmissionPushResult(
+                status="no_changes",
+                base_branch_name=base_branch_name,
+                repository_url=repository_url,
+            )
 
         branch_name = build_submission_branch_name(
             interview_id=interview_id,
             session_id=session_id,
+            candidate_email=candidate_email,
             submitted_at=submitted_at,
+        )
+        try:
+            should_create_pr = bool(base_branch_name) or self.settings.github_create_pr
+            return self._publish_to_github(
+                branch_name=branch_name,
+                base_branch_name=base_branch_name,
+                files=safe_files,
+                commit_message=f"Submit Nexterview solution for {candidate_email}",
+                pull_request_title=f"Nexterview submission: {candidate_email}",
+                pull_request_body=(
+                    "Candidate submission created by Nexterview.\n\n"
+                    f"Candidate: `{candidate_email}`\n"
+                    f"Session branch: `{branch_name}`\n"
+                    f"Base branch: `{base_branch_name or self.settings.github_default_branch.strip() or 'main'}`\n"
+                    f"Changed files: {len(safe_files)}\n\n"
+                    f"Candidate notes:\n{candidate_notes or 'No notes provided.'}"
+                ),
+                create_pull_request=should_create_pr,
+            )
+        except GitHubSubmissionPushError as exc:
+            return GitHubSubmissionPushResult(
+                status="failed",
+                branch_name=branch_name,
+                base_branch_name=base_branch_name,
+                repository_url=repository_url,
+                error=str(exc)[:1000],
+            )
+        except httpx.HTTPError:
+            return GitHubSubmissionPushResult(
+                status="failed",
+                branch_name=branch_name,
+                base_branch_name=base_branch_name,
+                repository_url=repository_url,
+                error="GitHub request failed.",
+            )
+
+    def publish_scenario_project(
+        self,
+        *,
+        interview_id: UUID,
+        scenario_id: UUID,
+        generated_at: datetime,
+        files: list[GitHubSubmissionFile],
+    ) -> GitHubSubmissionPushResult:
+        repository_url = self.repository_url
+        try:
+            safe_files = [
+                GitHubSubmissionFile(path=validate_repository_file(file.path, file.content), content=file.content)
+                for file in files
+            ]
+        except UnsafeRepositoryFileError as exc:
+            return GitHubSubmissionPushResult(status="failed", repository_url=repository_url, error=str(exc)[:1000])
+        if not self.is_configured:
+            return GitHubSubmissionPushResult(status="not_configured", repository_url=repository_url)
+        if not safe_files:
+            return GitHubSubmissionPushResult(status="no_changes", repository_url=repository_url)
+
+        branch_name = build_scenario_branch_name(
+            interview_id=interview_id,
+            scenario_id=scenario_id,
+            generated_at=generated_at,
         )
         try:
             return self._publish_to_github(
                 branch_name=branch_name,
+                base_branch_name=None,
                 files=safe_files,
-                candidate_notes=candidate_notes,
+                commit_message=f"Create Nexterview starter project for interview {interview_id}",
+                pull_request_title=None,
+                pull_request_body=None,
+                create_pull_request=False,
             )
         except GitHubSubmissionPushError as exc:
             return GitHubSubmissionPushResult(
@@ -157,12 +260,16 @@ class GitHubSubmissionPublisher:
         self,
         *,
         branch_name: str,
+        base_branch_name: str | None,
         files: list[GitHubSubmissionFile],
-        candidate_notes: str,
+        commit_message: str,
+        pull_request_title: str | None,
+        pull_request_body: str | None,
+        create_pull_request: bool,
     ) -> GitHubSubmissionPushResult:
         owner = self.settings.github_owner.strip()
         repo = self.settings.github_repo.strip()
-        default_branch = self.settings.github_default_branch.strip() or "main"
+        base_branch = base_branch_name or self.settings.github_default_branch.strip() or "main"
         repository_url = f"https://github.com/{owner}/{repo}"
         headers = {
             "Authorization": f"Bearer {self.settings.github_token.strip()}",
@@ -171,7 +278,8 @@ class GitHubSubmissionPublisher:
         }
 
         with httpx.Client(base_url="https://api.github.com", headers=headers, timeout=20.0) as client:
-            default_ref = self._request(client, "GET", f"/repos/{owner}/{repo}/git/ref/heads/{default_branch}")
+            encoded_base_branch = quote(base_branch, safe="")
+            default_ref = self._request(client, "GET", f"/repos/{owner}/{repo}/git/ref/heads/{encoded_base_branch}")
             base_sha = str(default_ref["object"]["sha"])
             base_commit = self._request(client, "GET", f"/repos/{owner}/{repo}/git/commits/{base_sha}")
             base_tree_sha = str(base_commit["tree"]["sha"])
@@ -204,7 +312,7 @@ class GitHubSubmissionPublisher:
                 "POST",
                 f"/repos/{owner}/{repo}/git/commits",
                 json={
-                    "message": f"Submit candidate solution for session {branch_name}",
+                    "message": commit_message,
                     "tree": tree["sha"],
                     "parents": [base_sha],
                 },
@@ -218,22 +326,16 @@ class GitHubSubmissionPublisher:
             )
 
             pull_request_url = None
-            if self.settings.github_create_pr:
-                pr_body = (
-                    "Candidate submission created by Nexterview.\n\n"
-                    f"Session branch: `{branch_name}`\n"
-                    f"Changed files: {len(files)}\n\n"
-                    f"Candidate notes:\n{candidate_notes or 'No notes provided.'}"
-                )
+            if create_pull_request:
                 pull_request = self._request(
                     client,
                     "POST",
                     f"/repos/{owner}/{repo}/pulls",
                     json={
-                        "title": f"Nexterview submission: {branch_name}",
+                        "title": pull_request_title or f"Nexterview changes: {branch_name}",
                         "head": branch_name,
-                        "base": default_branch,
-                        "body": pr_body,
+                        "base": base_branch,
+                        "body": pull_request_body or "",
                     },
                 )
                 pull_request_url = str(pull_request.get("html_url") or "")
@@ -241,6 +343,7 @@ class GitHubSubmissionPublisher:
         return GitHubSubmissionPushResult(
             status="pushed",
             branch_name=branch_name,
+            base_branch_name=base_branch_name,
             commit_sha=commit_sha,
             repository_url=repository_url,
             pull_request_url=pull_request_url or None,

@@ -36,12 +36,17 @@ from app.schemas.project import (
 )
 from app.schemas.review import (
     AgentReviewRead,
+    AITranscriptMessageRead,
     AIUsageAnalysisRead,
     FileDiffRead,
     GitHubReviewLinksRead,
+    PromptQualitySummaryRead,
+    ResultsDashboardItemRead,
     ScoreBreakdownItemRead,
     SessionResultRead,
+    SubmittedCodeFileRead,
     SubmissionReviewSummaryRead,
+    TelemetryTimelineEventRead,
 )
 from app.schemas.scenario import GeneratedScenario, ScenarioRead
 
@@ -54,6 +59,7 @@ __all__ = [
     "AIGeneratedProjectMetadata",
     "AIGeneratedScenarioDetails",
     "AIUsageAnalysisRead",
+    "AITranscriptMessageRead",
     "AIMessageRead",
     "CandidateProjectFileRead",
     "CandidateScenarioProjectRead",
@@ -77,7 +83,9 @@ __all__ = [
     "LoginRequest",
     "PublicInviteRead",
     "ProjectFileRead",
+    "PromptQualitySummaryRead",
     "RegisterRequest",
+    "ResultsDashboardItemRead",
     "ScenarioProjectRead",
     "ScenarioRead",
     "ScoreBreakdownItemRead",
@@ -86,9 +94,11 @@ __all__ = [
     "SubmissionCreate",
     "SubmissionRead",
     "SubmissionReviewSummaryRead",
+    "SubmittedCodeFileRead",
     "SubmittedFileRead",
     "TelemetryEventCreate",
     "TelemetryEventRead",
+    "TelemetryTimelineEventRead",
     "TokenPayload",
     "TestRunRequest",
     "TestRunResult",

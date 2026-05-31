@@ -90,15 +90,23 @@ function DashboardContent() {
                 <div>
                   <h2 className="text-xl font-semibold">Interview management</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
-                    Create interview configs and generate stored AI scenarios.
+                    Create interview configs, generate scenarios, and review submitted sessions.
                   </p>
                 </div>
-                <Link
-                  className="inline-flex h-11 w-fit items-center justify-center rounded-md bg-cyan-400 px-4 text-sm font-medium text-slate-950 transition hover:bg-cyan-300"
-                  href="/interviews"
-                >
-                  Open interviews
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    className="inline-flex h-11 w-fit items-center justify-center rounded-md bg-cyan-400 px-4 text-sm font-medium text-slate-950 transition hover:bg-cyan-300"
+                    href="/interviews"
+                  >
+                    Open interviews
+                  </Link>
+                  <Link
+                    className="inline-flex h-11 w-fit items-center justify-center rounded-md border border-slate-700 px-4 text-sm font-medium text-slate-200 transition hover:border-cyan-500 hover:text-cyan-200"
+                    href="/results"
+                  >
+                    View results
+                  </Link>
+                </div>
               </div>
             </section>
           ) : null}
