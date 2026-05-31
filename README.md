@@ -42,6 +42,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - Interviews, invite tokens, interview sessions, stored generated scenarios, scenario projects, project files, session file snapshots, telemetry events, AI messages, submissions with file-level diffs, internal agent reviews, and persisted weighted scores
 - OpenAI Responses API integration on the backend with strict Pydantic JSON validation for generated repo projects
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
+- Role-aware executable scenario generation with a seed catalog of failing starter projects, visible tests, private expected solution files, validation metadata, and interviewer-only rubric fields
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
 - Frontend login, register, auth state, protected dashboard route, interviewer management route, interviewer results dashboard with Recharts score/status visualizations, invite page, repo submission result page, and a resizable Monaco-powered candidate IDE workspace with task, editor, AI copilot, file tree, output, required final explanation, snapshot autosave, pass/fail run output, and final submit confirmation
 - Optional GitHub publishing that creates a starter branch from the configured default branch when a scenario is generated, then creates a candidate-specific submission branch and pull request against that starter branch so reviewers see only candidate changes

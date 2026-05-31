@@ -21,6 +21,7 @@ from app.main import app
 from app.models import Interview, Organization, OrganizationMember, ProjectFile, Scenario, ScenarioProject, User, UserRole
 from app.schemas.scenario import GeneratedScenario
 from app.services.scenario_generator import ScenarioGenerationResult, ScenarioGenerator, parse_generated_project_json
+from app.services.scenario_seed_catalog import seed_scenarios
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -75,6 +76,14 @@ def _scenario_payload() -> GeneratedScenario:
     return GeneratedScenario.model_validate(
         {
             "title": "Debug duplicate webhook delivery handling",
+            "role_title": "Backend Engineer",
+            "seniority": "Senior",
+            "interview_type": "Backend debugging",
+            "difficulty": "Intermediate",
+            "stack": ["Python", "FastAPI"],
+            "language": "python",
+            "framework": "FastAPI",
+            "ai_mode": "Pair Programmer Mode",
             "business_context": (
                 "The interview operations team receives duplicate webhook events from an assessment vendor, and "
                 "candidate scores are being overwritten when retries arrive out of order."
@@ -84,12 +93,42 @@ def _scenario_payload() -> GeneratedScenario:
                 "Reject stale score updates without breaking legitimate retries.",
                 "Document the API response contract for ignored duplicates.",
             ],
+            "visible_requirements": [
+                "Add idempotent handling keyed by vendor event id.",
+                "Reject stale score updates without breaking legitimate retries.",
+            ],
             "starter_code": "def handle_webhook(event):\n    save_score(event.candidate_id, event.score)\n",
+            "starter_files_json": [
+                {
+                    "path": "app/services/webhooks.py",
+                    "language": "python",
+                    "content": "def handle_webhook(event):\n    save_score(event.candidate_id, event.score)\n",
+                }
+            ],
+            "test_files_json": [
+                {
+                    "path": "tests/test_webhooks.py",
+                    "language": "python",
+                    "content": "def test_duplicate_event_is_ignored():\n    assert True\n",
+                }
+            ],
+            "expected_solution_files_json": [
+                {
+                    "path": "app/services/webhooks.py",
+                    "language": "python",
+                    "content": "def handle_webhook(event):\n    return {'status': 'deduped'}\n",
+                }
+            ],
             "expected_behavior": [
                 "Duplicate events do not overwrite the existing score.",
                 "Out-of-order retries are logged and ignored safely.",
             ],
             "logs_or_bug_report": "Bug report: score changed from 91 to 72 after vendor retried event evt_123.",
+            "bug_description_internal": "Duplicate webhook events are not tracked before applying score writes.",
+            "validation_command": "pytest",
+            "constraints": ["Keep response shape stable."],
+            "expected_solution_summary": "Persist or check vendor event ids before applying score updates.",
+            "scenario_fit": "Backend debugging scenario for senior FastAPI candidates.",
             "hidden_evaluation_points": [
                 "Checks candidate reasoning about idempotency and ordering.",
                 "Rewards tests for duplicate and stale events.",
@@ -194,11 +233,13 @@ def _ai_project_payload() -> dict[str, object]:
         "project": {
             "project_name": "invoice-export-service",
             "stack": "Node.js + Express",
+            "language": "typescript",
             "framework": "Express",
             "package_manager": "npm",
             "install_command": "npm install",
             "run_command": "npm run dev",
             "test_command": "npm test",
+            "validation_command": "npm test",
             "entrypoint": "src/server.ts",
         },
         "files": [
@@ -259,6 +300,13 @@ def _ai_project_payload() -> dict[str, object]:
                 "content": "# Invoice export service\n\nUse the Nexterview Run button to check your changes.\n",
             },
         ],
+        "expected_solution_files": [
+            {
+                "path": "src/services/invoices.ts",
+                "language": "typescript",
+                "content": "export function total(invoice) { return invoice.lines.reduce((sum, line) => sum + line.amount, 0); }\n",
+            }
+        ],
     }
 
 
@@ -297,6 +345,10 @@ def test_create_interview_and_generate_scenario_with_mocked_ai_service(client: T
     assert scenario["title"] == "Debug duplicate webhook delivery handling"
     assert scenario["generation_source"] == "openai"
     assert scenario["ai_model"] == "test-model"
+    assert scenario["role_title"] == "Backend Engineer"
+    assert scenario["language"] == "python"
+    assert scenario["framework"] == "FastAPI"
+    assert scenario["visible_requirements"]
     assert scenario["hidden_evaluation_points"][0].startswith("Checks candidate")
     assert scenario["project"]["project_name"] == "webhook-score-api"
     assert len(scenario["project"]["files"]) == 6
@@ -357,6 +409,8 @@ def test_scenario_generator_parses_mocked_ai_project_json(monkeypatch: pytest.Mo
     assert result.scenario.title == "Repair invoice approval exports"
     assert result.scenario.project is not None
     assert result.scenario.project.project_name == "invoice-export-service"
+    assert result.scenario.language == "typescript"
+    assert result.scenario.expected_solution_files_json[0].path == "src/services/invoices.ts"
     assert len(result.scenario.project.files) == 7
     assert any(project_file.file_type.value == "data" for project_file in result.scenario.project.files)
     assert any(project_file.is_hidden for project_file in result.scenario.project.files)
@@ -367,6 +421,28 @@ def test_project_json_parser_rejects_missing_data_file() -> None:
     payload["files"] = [
         project_file for project_file in payload["files"] if project_file["file_type"] != "data"  # type: ignore[index]
     ]
+    interview = Interview(
+        id=uuid4(),
+        organization_id=uuid4(),
+        created_by_id=uuid4(),
+        role_title="Backend Engineer",
+        seniority="Senior",
+        stack=["Node.js", "Express"],
+        difficulty="Intermediate",
+        interview_type="API debugging",
+        duration_minutes=75,
+        allowed_ai_mode="Pair Programmer Mode",
+        evaluation_criteria=["Correctness"],
+        status="DRAFT",
+    )
+
+    with pytest.raises(Exception):
+        parse_generated_project_json(json.dumps(payload), interview=interview)
+
+
+def test_project_json_parser_rejects_missing_expected_solution() -> None:
+    payload = _ai_project_payload()
+    payload.pop("expected_solution_files")
     interview = Interview(
         id=uuid4(),
         organization_id=uuid4(),
@@ -471,19 +547,89 @@ def test_scenario_generator_falls_back_without_openai_key(monkeypatch: pytest.Mo
 
     assert result.source == "fallback"
     assert result.model is None
-    assert result.scenario.title == "Fix order totals and add status filtering"
     assert result.scenario.project is not None
-    assert result.scenario.project.project_name == "orders-review-api"
+    assert "retrieval" in result.scenario.title.lower() or "rag" in result.scenario.project.project_name
+    assert result.scenario.language == "python"
+    assert result.scenario.framework == "RAG"
+    assert result.scenario.expected_solution_files_json
+    assert result.scenario.validation_command
     assert "install" not in result.scenario.validation_instructions.lower()
     assert "pytest" not in result.scenario.validation_instructions.lower()
-    assert {project_file.path for project_file in result.scenario.project.files} >= {
-        "app/main.py",
-        "app/services/orders.py",
-        "app/data/orders.json",
-        "tests/test_orders.py",
-        "README.md",
-    }
+    paths = {project_file.path for project_file in result.scenario.project.files}
+    assert {"app/retrieval.py", "app/data/documents.json", "tests/test_retrieval.py", "README.md"} <= paths
     readme = next(project_file for project_file in result.scenario.project.files if project_file.path == "README.md")
     assert "pip install" not in readme.content
     assert "pytest" not in readme.content
     assert result.scenario.hidden_evaluation_points
+
+
+def test_seed_catalog_contains_executable_private_solutions() -> None:
+    seeds = seed_scenarios()
+    assert len(seeds) >= 8
+    assert any(seed.key == "fastapi-pagination" for seed in seeds)
+    assert any(seed.key == "rag-metadata" for seed in seeds)
+    assert any(seed.key == "security-org-access" for seed in seeds)
+
+    for seed in seeds:
+        payload = seed.payload
+        envelope = parse_generated_project_json(json.dumps(payload), interview=Interview(
+            id=uuid4(),
+            organization_id=uuid4(),
+            created_by_id=uuid4(),
+            role_title="Seed Reviewer",
+            seniority="Senior",
+            stack=["Python", "TypeScript", "FastAPI", "React"],
+            difficulty="Intermediate",
+            interview_type="Seed validation",
+            duration_minutes=75,
+            allowed_ai_mode="Pair Programmer Mode",
+            evaluation_criteria=["Correctness"],
+            status="DRAFT",
+        ))
+        assert envelope.expected_solution_files_json
+        assert envelope.test_files_json
+        visible_tests = "\n".join(test_file.content for test_file in envelope.test_files_json)
+        assert "assert" in visible_tests or "expect(" in visible_tests
+        starter_by_path = {file_payload.path: file_payload.content for file_payload in envelope.starter_files_json}
+        assert any(starter_by_path.get(solution.path) != solution.content for solution in envelope.expected_solution_files_json)
+
+
+def test_fallback_scenarios_are_role_and_stack_matched(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    frontend_interview = Interview(
+        id=uuid4(),
+        organization_id=uuid4(),
+        created_by_id=uuid4(),
+        role_title="Frontend React Engineer",
+        seniority="Senior",
+        stack=["React", "Next.js", "TypeScript"],
+        difficulty="Intermediate",
+        interview_type="Frontend hydration bug",
+        duration_minutes=60,
+        allowed_ai_mode="Debugging Assistant Mode",
+        evaluation_criteria=["Correctness"],
+        status="DRAFT",
+    )
+    security_interview = Interview(
+        id=uuid4(),
+        organization_id=uuid4(),
+        created_by_id=uuid4(),
+        role_title="Backend Security Engineer",
+        seniority="Staff",
+        stack=["Python", "FastAPI", "Auth"],
+        difficulty="Advanced",
+        interview_type="Security review task",
+        duration_minutes=90,
+        allowed_ai_mode="Senior Engineer Mode",
+        evaluation_criteria=["Security", "Correctness"],
+        status="DRAFT",
+    )
+
+    frontend = ScenarioGenerator().generate(frontend_interview).scenario
+    security = ScenarioGenerator().generate(security_interview).scenario
+
+    assert frontend.framework == "Next.js"
+    assert "hydration" in frontend.title.lower()
+    assert security.framework == "FastAPI"
+    assert "organization" in security.bug_description.lower()
+    assert frontend.title != security.title

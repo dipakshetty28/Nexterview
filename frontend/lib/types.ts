@@ -45,6 +45,12 @@ export type ProjectFile = {
   updated_at?: string;
 };
 
+export type ScenarioFilePayload = {
+  path: string;
+  language: string;
+  content: string;
+};
+
 export type ScenarioProject = {
   id?: string;
   scenario_id?: string;
@@ -116,15 +122,32 @@ export type Scenario = {
   id: string;
   interview_id: string;
   title: string;
+  role_title: string;
+  seniority: string;
+  interview_type: string;
+  difficulty: string;
+  stack: string[];
+  language: string;
+  framework: string;
+  ai_mode: string;
   business_context: string;
   technical_requirements: string[];
+  visible_requirements: string[];
   starter_code: string;
+  starter_files_json: ScenarioFilePayload[];
+  test_files_json: ScenarioFilePayload[];
+  expected_solution_files_json: ScenarioFilePayload[];
   expected_behavior: string[];
   logs_or_bug_report: string;
   bug_description: string;
+  bug_description_internal: string;
   feature_request: string;
   validation_instructions: string;
+  validation_command: string;
+  constraints: string[];
   candidate_task_summary: string;
+  expected_solution_summary: string;
+  scenario_fit: string;
   hidden_evaluation_points: string[];
   hidden_rubric: string[];
   candidate_instructions: string;
@@ -362,14 +385,22 @@ export type CandidateSession = {
     title: string;
     business_context: string;
     technical_requirements: string[];
+    visible_requirements: string[];
+    starter_files_json: ScenarioFilePayload[];
+    test_files_json: ScenarioFilePayload[];
     starter_code: string;
     expected_behavior: string[];
     logs_or_bug_report: string;
     bug_description: string;
     feature_request: string;
     validation_instructions: string;
+    validation_command: string;
+    constraints: string[];
     candidate_task_summary: string;
     candidate_instructions: string;
+    ai_mode: string;
+    language: string;
+    framework: string;
     project: CandidateScenarioProject | null;
   };
   submission: Submission | null;

@@ -49,14 +49,22 @@ class CandidateScenarioRead(BaseModel):
     title: str
     business_context: str
     technical_requirements: list[str]
+    visible_requirements: list[str]
+    starter_files_json: list[dict[str, str]]
+    test_files_json: list[dict[str, str]]
     starter_code: str
     expected_behavior: list[str]
     logs_or_bug_report: str
     bug_description: str
     feature_request: str
     validation_instructions: str
+    validation_command: str
+    constraints: list[str]
     candidate_task_summary: str
     candidate_instructions: str
+    ai_mode: str
+    language: str
+    framework: str
     project: CandidateScenarioProjectRead | None = None
 
     model_config = ConfigDict(from_attributes=True)

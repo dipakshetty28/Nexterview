@@ -346,6 +346,13 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert "hidden_evaluation_points" not in session["scenario"]
     assert "hidden_rubric" not in session["scenario"]
     assert "interviewer_rubric" not in session["scenario"]
+    assert "expected_solution_files_json" not in session["scenario"]
+    assert "bug_description_internal" not in session["scenario"]
+    assert "expected_solution_summary" not in session["scenario"]
+    assert session["scenario"]["visible_requirements"]
+    assert session["scenario"]["starter_files_json"]
+    assert session["scenario"]["language"]
+    assert session["scenario"]["framework"]
     assert session["scenario"]["project"]["project_name"] == "orders-review-api"
     assert session["scenario"]["project"]["install_command"] is None
     assert session["scenario"]["project"]["run_command"] is None
