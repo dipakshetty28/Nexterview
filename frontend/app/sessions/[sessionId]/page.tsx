@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -82,6 +82,20 @@ function formatCopilotTestOutput(testRun: TestRunResult | null): string | null {
   }
   const caseLines = testRun.cases.map((testCase) => `- ${testCase.name}: ${testCase.status} - ${testCase.details}`);
   return [`Status: ${testRun.status}`, `Output: ${testRun.output}`, ...caseLines].join("\n");
+}
+
+const COPILOT_UNAVAILABLE_MESSAGE =
+  "AI assistant is temporarily unavailable. Continue solving manually or try again.";
+
+function sanitizeCandidateText(value: string): string {
+  return value
+    .replace(/\b(OPENAI_API_KEY|GITHUB_TOKEN|JWT_SECRET|DATABASE_URL|REDIS_URL)\s*=\s*[^\s]+/gi, "$1=[redacted]")
+    .replace(/\b(postgresql|postgres|redis):\/\/[^\s)]+/gi, "$1://[redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}/g, "sk-[redacted]")
+    .replace(/\bgpt-[A-Za-z0-9_.-]+/gi, "[model]")
+    .replace(/https:\/\/github\.com\/[^\s)]+\/(?:pull|tree|commit)\/[^\s)]+/gi, "[review link hidden]")
+    .replace(/Traceback \(most recent call last\):[\s\S]*?(?=\n\n|$)/g, "[technical details hidden]")
+    .replace(/^File ".+", line \d+,.+$/gm, "[technical details hidden]");
 }
 
 function languageForStack(stack: string[]): string {
@@ -255,46 +269,66 @@ function FileTree({
 const markdownComponents: Components = {
   code({ className, children, node: _node, ...props }) {
     const match = /language-(\w+)/.exec(className ?? "");
-    const codeText = String(children ?? "").replace(/\n$/, "");
+    const codeText = sanitizeCandidateText(String(children ?? "").replace(/\n$/, ""));
     if (!match) {
       return (
-        <code className="rounded bg-slate-800 px-1 py-0.5 text-cyan-200" {...props}>
-          {children}
+        <code className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[0.85em] text-cyan-200" {...props}>
+          {sanitizeCandidateText(String(children ?? ""))}
         </code>
       );
     }
 
-    return <CopyableCodeBlock code={codeText} language={match[1]} />;
+    return <CodeBlockWithCopy code={codeText} language={match[1]} />;
   },
   p({ children }) {
-    return <p className="leading-6">{children}</p>;
+    return <p className="leading-6 text-slate-200">{children}</p>;
   },
   ul({ children }) {
-    return <ul className="ml-4 list-disc space-y-1">{children}</ul>;
+    return <ul className="ml-4 list-disc space-y-1.5 leading-6 text-slate-200">{children}</ul>;
   },
   ol({ children }) {
-    return <ol className="ml-4 list-decimal space-y-1">{children}</ol>;
+    return <ol className="ml-4 list-decimal space-y-1.5 leading-6 text-slate-200">{children}</ol>;
+  },
+  h1({ children }) {
+    return <h1 className="text-base font-semibold text-slate-50">{children}</h1>;
+  },
+  h2({ children }) {
+    return <h2 className="text-sm font-semibold text-slate-50">{children}</h2>;
+  },
+  h3({ children }) {
+    return <h3 className="text-sm font-semibold text-slate-100">{children}</h3>;
+  },
+  blockquote({ children }) {
+    return <blockquote className="border-l-2 border-cyan-700 pl-3 text-slate-300">{children}</blockquote>;
   },
 };
 
-function CopyableCodeBlock({ code, language }: { code: string; language: string }) {
+function CodeBlockWithCopy({ code, language }: { code: string; language: string }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
   }
 
   return (
     <div className="my-3 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
-      <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2 text-xs text-slate-400">
-        <span>{language}</span>
-        <button className="text-cyan-300 hover:text-cyan-200" onClick={() => void handleCopy()} type="button">
+      <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-slate-400">
+        <span className="font-mono uppercase tracking-wide">{language}</span>
+        <button
+          className="rounded px-2 py-1 text-cyan-300 outline-none hover:bg-slate-800 hover:text-cyan-100 focus-visible:ring-2 focus-visible:ring-cyan-400/60"
+          onClick={() => void handleCopy()}
+          type="button"
+        >
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="overflow-auto p-3 text-xs leading-5 text-slate-200">
+      <pre className="max-h-96 overflow-auto p-3 font-mono text-xs leading-5 text-slate-200">
         <code>{code}</code>
       </pre>
     </div>
@@ -322,36 +356,53 @@ function confidenceForMessage(message: AIMessage): string | null {
   return typeof confidence === "string" ? confidence : null;
 }
 
-function CopilotMessage({
-  message,
+function MarkdownMessage({ content }: { content: string }) {
+  return (
+    <div className="grid gap-2 text-sm">
+      <ReactMarkdown components={markdownComponents}>{sanitizeCandidateText(content)}</ReactMarkdown>
+    </div>
+  );
+}
+
+function ChatMessageBubble({
+  role,
+  content,
+  suggestedFiles = [],
+  confidence = null,
+  isPending = false,
   onOpenSuggestedFile,
 }: {
-  message: AIMessage;
+  role: "user" | "assistant";
+  content: string;
+  suggestedFiles?: CopilotSuggestedFile[];
+  confidence?: string | null;
+  isPending?: boolean;
   onOpenSuggestedFile: (path: string) => void;
 }) {
-  const isAssistant = message.role === "assistant";
-  const suggestedFiles = isAssistant ? suggestedFilesForMessage(message) : [];
-  const confidence = isAssistant ? confidenceForMessage(message) : null;
+  const isAssistant = role === "assistant";
   return (
     <div
       className={
         isAssistant
-          ? "rounded-md border border-slate-800 bg-slate-950 p-3 text-sm text-slate-200"
-          : "rounded-md border border-cyan-950/70 bg-cyan-950/30 p-3 text-sm text-cyan-50"
+          ? "rounded-md border border-slate-800 bg-slate-950 p-3 text-sm text-slate-200 shadow-sm"
+          : "ml-5 rounded-md border border-cyan-900/70 bg-cyan-950/40 p-3 text-sm text-cyan-50 shadow-sm"
       }
     >
-      <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">{isAssistant ? "Copilot" : "You"}</p>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isAssistant ? "AI Copilot" : "You"}</p>
+        {isPending ? <span className="text-xs text-cyan-300">sending</span> : null}
+      </div>
       {isAssistant ? (
         <div className="grid gap-2">
-          <ReactMarkdown components={markdownComponents}>{message.content}</ReactMarkdown>
+          <MarkdownMessage content={content} />
           {suggestedFiles.length > 0 ? (
             <div className="flex flex-wrap gap-2 pt-1">
               {suggestedFiles.map((file) => (
                 <button
-                  className="max-w-full truncate rounded-full border border-cyan-900/70 bg-cyan-950/30 px-2.5 py-1 text-left text-xs text-cyan-100 hover:border-cyan-600"
-                  key={`${message.id}-${file.path}`}
+                  className="max-w-full truncate rounded-full border border-cyan-900/70 bg-cyan-950/30 px-2.5 py-1 text-left text-xs text-cyan-100 outline-none hover:border-cyan-600 focus-visible:ring-2 focus-visible:ring-cyan-400/60"
+                  key={file.path}
                   onClick={() => onOpenSuggestedFile(file.path)}
-                  title={file.reason}
+                  title={sanitizeCandidateText(file.reason)}
                   type="button"
                 >
                   {file.path}
@@ -362,8 +413,79 @@ function CopilotMessage({
           {confidence ? <p className="text-xs text-slate-500">Confidence: {confidence}</p> : null}
         </div>
       ) : (
-        <p className="whitespace-pre-wrap leading-6">{message.content}</p>
+        <p className="whitespace-pre-wrap leading-6">{sanitizeCandidateText(content)}</p>
       )}
+    </div>
+  );
+}
+
+function CopilotMessage({
+  message,
+  onOpenSuggestedFile,
+}: {
+  message: AIMessage;
+  onOpenSuggestedFile: (path: string) => void;
+}) {
+  const isAssistant = message.role === "assistant";
+  return (
+    <ChatMessageBubble
+      confidence={isAssistant ? confidenceForMessage(message) : null}
+      content={message.content}
+      onOpenSuggestedFile={onOpenSuggestedFile}
+      role={message.role}
+      suggestedFiles={isAssistant ? suggestedFilesForMessage(message) : []}
+    />
+  );
+}
+
+function AiEmptyState() {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-300">
+      <p className="font-medium text-slate-100">Ask for debugging help, code review, test ideas, or tradeoff analysis.</p>
+      <p className="mt-2 text-slate-400">
+        AI assistance is allowed. Your validation, reasoning, and judgment are evaluated.
+      </p>
+    </div>
+  );
+}
+
+function AiTypingIndicator() {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
+      <span className="inline-flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-cyan-300" />
+        AI copilot is reviewing your context...
+      </span>
+    </div>
+  );
+}
+
+function AiErrorState({ onRetry, isRetrying }: { onRetry: () => void; isRetrying: boolean }) {
+  return (
+    <div className="rounded-md border border-amber-900/70 bg-amber-950/30 p-3 text-sm text-amber-100">
+      <p>{COPILOT_UNAVAILABLE_MESSAGE}</p>
+      <Button className="mt-3 h-9 px-3" disabled={isRetrying} onClick={onRetry} type="button" variant="secondary">
+        {isRetrying ? "Retrying..." : "Retry last prompt"}
+      </Button>
+    </div>
+  );
+}
+
+function PromptQualityHints() {
+  const examples = [
+    "Here is the failing test and the code path I suspect...",
+    "Compare these two possible fixes and risks...",
+    "What edge cases should I test?",
+  ];
+
+  return (
+    <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/70 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stronger prompts include context</p>
+      <ul className="mt-2 grid gap-1.5 text-xs leading-5 text-slate-400">
+        {examples.map((example) => (
+          <li key={example}>{example}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -393,6 +515,9 @@ function CandidateSessionContent() {
   const [copilotMessages, setCopilotMessages] = useState<AIMessage[]>([]);
   const [copilotQuestion, setCopilotQuestion] = useState("");
   const [isAskingCopilot, setIsAskingCopilot] = useState(false);
+  const [copilotError, setCopilotError] = useState<string | null>(null);
+  const [lastCopilotQuestion, setLastCopilotQuestion] = useState<string | null>(null);
+  const [pendingCopilotQuestion, setPendingCopilotQuestion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
@@ -404,6 +529,7 @@ function CandidateSessionContent() {
   const latestFileContents = useRef<Record<string, string>>({});
   const openedFileIds = useRef<Set<string>>(new Set());
   const sessionStartedSent = useRef(false);
+  const copilotMessagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const workspaceFiles = workspace?.files ?? [];
   const hasWorkspace = workspaceFiles.length > 0;
@@ -452,6 +578,9 @@ function CandidateSessionContent() {
         setLastSavedAt(loadedWorkspace.last_autosaved_at ?? loadedSession.last_autosaved_at);
         setSubmission(loadedSession.submission);
         setCopilotMessages(loadedSession.ai_messages);
+        setCopilotError(null);
+        setLastCopilotQuestion(null);
+        setPendingCopilotQuestion(null);
 
         if (!sessionStartedSent.current) {
           sessionStartedSent.current = true;
@@ -491,6 +620,10 @@ function CandidateSessionContent() {
       Object.values(fileSaveTimers.current).forEach((timer) => window.clearTimeout(timer));
     };
   }, []);
+
+  useEffect(() => {
+    copilotMessagesEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [copilotMessages.length, pendingCopilotQuestion, isAskingCopilot, copilotError]);
 
   async function saveWorkspaceFile(fileId: string, content: string) {
     if (!token || !session || isSubmitted) {
@@ -736,13 +869,20 @@ function CandidateSessionContent() {
     }
   }
 
-  async function handleAskCopilot() {
-    if (!token || !session || copilotQuestion.trim().length === 0) {
+  async function handleAskCopilot(questionOverride?: string) {
+    if (!token || !session || isAskingCopilot || isSubmitted) {
       return;
     }
 
-    const question = copilotQuestion.trim();
+    const question = (questionOverride ?? copilotQuestion).trim();
+    if (question.length === 0) {
+      return;
+    }
+
     setIsAskingCopilot(true);
+    setCopilotError(null);
+    setLastCopilotQuestion(question);
+    setPendingCopilotQuestion(question);
     setError(null);
     try {
       if (hasWorkspace) {
@@ -765,12 +905,20 @@ function CandidateSessionContent() {
         response.assistant_message,
       ]);
       setCopilotQuestion("");
-    } catch (requestError: unknown) {
-      const message = requestError instanceof ApiError ? requestError.message : "Unable to ask the AI copilot.";
-      setError(message);
+    } catch {
+      setCopilotError(COPILOT_UNAVAILABLE_MESSAGE);
     } finally {
       setIsAskingCopilot(false);
+      setPendingCopilotQuestion(null);
     }
+  }
+
+  function handleCopilotKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    void handleAskCopilot();
   }
 
   return (
@@ -1085,52 +1233,89 @@ function CandidateSessionContent() {
                   </pre>
                 </section>
 
-                <section className="rounded-md border border-slate-800 bg-slate-900/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-slate-100">AI copilot</h3>
-                    <span className="text-xs text-slate-500">{session.interview.allowed_ai_mode}</span>
-                  </div>
-                  <div className="mt-3 grid max-h-[360px] gap-3 overflow-auto pr-1">
-                    {copilotMessages.length === 0 ? (
-                      <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
-                        Ask for implementation help, debugging hypotheses, code review, or a validation plan.
+                <section className="overflow-hidden rounded-md border border-slate-800 bg-slate-900/70">
+                  <div className="border-b border-slate-800 bg-slate-950/60 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-500">AI copilot</p>
+                        <h3 className="mt-1 text-sm font-semibold text-slate-100">{session.interview.allowed_ai_mode}</h3>
                       </div>
-                    ) : (
-                      copilotMessages.map((message) => (
-                        <CopilotMessage
-                          key={message.id}
-                          message={message}
-                          onOpenSuggestedFile={handleOpenSuggestedFile}
-                        />
-                      ))
-                    )}
+                      <span className="rounded-full border border-cyan-900/70 bg-cyan-950/30 px-2.5 py-1 text-xs text-cyan-100">
+                        Allowed
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-400">
+                      AI assistance is allowed. Your validation, reasoning, and judgment are evaluated.
+                    </p>
                   </div>
-                  <textarea
-                    className="mt-3 min-h-24 w-full resize-none rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
-                    disabled={isAskingCopilot}
-                    onChange={(event) => setCopilotQuestion(event.target.value)}
-                    placeholder="Ask for a hint, patch, debugging plan, or edge-case review."
-                    value={copilotQuestion}
-                  />
-                  {selectedFile ? (
-                    <Button
-                      className="mt-2 w-full"
-                      disabled={isAskingCopilot}
-                      onClick={handleAddSelectedFileContext}
-                      type="button"
-                      variant="secondary"
-                    >
-                      Add selected file context
-                    </Button>
-                  ) : null}
-                  <Button
-                    className="mt-3 w-full"
-                    disabled={isAskingCopilot || copilotQuestion.trim().length === 0}
-                    onClick={() => void handleAskCopilot()}
-                    type="button"
-                  >
-                    {isAskingCopilot ? "Asking..." : "Ask copilot"}
-                  </Button>
+
+                  <div className="grid max-h-[430px] gap-3 overflow-auto p-4 pr-2" aria-live="polite">
+                    {copilotMessages.length === 0 && !pendingCopilotQuestion && !isAskingCopilot && !copilotError ? (
+                      <AiEmptyState />
+                    ) : null}
+                    {copilotMessages.map((message) => (
+                      <CopilotMessage
+                        key={message.id}
+                        message={message}
+                        onOpenSuggestedFile={handleOpenSuggestedFile}
+                      />
+                    ))}
+                    {pendingCopilotQuestion ? (
+                      <ChatMessageBubble
+                        content={pendingCopilotQuestion}
+                        isPending
+                        onOpenSuggestedFile={handleOpenSuggestedFile}
+                        role="user"
+                      />
+                    ) : null}
+                    {isAskingCopilot ? <AiTypingIndicator /> : null}
+                    {copilotError ? (
+                      <AiErrorState
+                        isRetrying={isAskingCopilot}
+                        onRetry={() => void handleAskCopilot(lastCopilotQuestion ?? copilotQuestion)}
+                      />
+                    ) : null}
+                    <div ref={copilotMessagesEndRef} />
+                  </div>
+
+                  <div className="border-t border-slate-800 p-4">
+                    <label className="grid gap-2 text-sm text-slate-200">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Prompt</span>
+                      <textarea
+                        className="min-h-24 w-full resize-none rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-200 outline-none transition placeholder:text-slate-500 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                        disabled={isAskingCopilot || isSubmitted}
+                        onChange={(event) => {
+                          setCopilotQuestion(event.target.value);
+                          setCopilotError(null);
+                        }}
+                        onKeyDown={handleCopilotKeyDown}
+                        placeholder="Ask for a hint, patch, debugging plan, or edge-case review."
+                        value={copilotQuestion}
+                      />
+                    </label>
+                    <PromptQualityHints />
+                    <div className="mt-3 grid gap-2">
+                      {selectedFile ? (
+                        <Button
+                          className="w-full"
+                          disabled={isAskingCopilot || isSubmitted}
+                          onClick={handleAddSelectedFileContext}
+                          type="button"
+                          variant="secondary"
+                        >
+                          Add selected file context
+                        </Button>
+                      ) : null}
+                      <Button
+                        className="w-full"
+                        disabled={isAskingCopilot || isSubmitted || copilotQuestion.trim().length === 0}
+                        onClick={() => void handleAskCopilot()}
+                        type="button"
+                      >
+                        {isAskingCopilot ? "Sending..." : "Send"}
+                      </Button>
+                    </div>
+                  </div>
                 </section>
               </div>
 
