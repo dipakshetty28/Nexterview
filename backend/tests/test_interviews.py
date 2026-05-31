@@ -310,6 +310,62 @@ def _ai_project_payload() -> dict[str, object]:
     }
 
 
+def _java_spring_interview(*, interview_type: str = "Backend debugging") -> Interview:
+    return Interview(
+        id=uuid4(),
+        organization_id=uuid4(),
+        created_by_id=uuid4(),
+        role_title="Backend Engineer",
+        seniority="Senior",
+        stack=["Java", "Spring Boot", "PostgreSQL"],
+        difficulty="Intermediate",
+        interview_type=interview_type,
+        duration_minutes=75,
+        allowed_ai_mode="Pair Programmer Mode",
+        evaluation_criteria=["Correctness", "Debugging"],
+        status="DRAFT",
+    )
+
+
+def _fastapi_interview() -> Interview:
+    return Interview(
+        id=uuid4(),
+        organization_id=uuid4(),
+        created_by_id=uuid4(),
+        role_title="Backend Engineer",
+        seniority="Senior",
+        stack=["Python", "FastAPI", "PostgreSQL"],
+        difficulty="Intermediate",
+        interview_type="Backend debugging",
+        duration_minutes=75,
+        allowed_ai_mode="Pair Programmer Mode",
+        evaluation_criteria=["Correctness", "Debugging"],
+        status="DRAFT",
+    )
+
+
+def _seed_payload(key: str) -> dict[str, object]:
+    return next(seed.payload for seed in seed_scenarios() if seed.key == key)
+
+
+def _assert_java_spring_boot_scenario(scenario: GeneratedScenario) -> None:
+    assert scenario.language == "java"
+    assert scenario.framework == "Spring Boot"
+    assert scenario.validation_command == "mvn test"
+    assert scenario.project is not None
+    paths = {project_file.path for project_file in scenario.project.files}
+    visible_test_paths = {test_file.path for test_file in scenario.test_files_json}
+    starter_paths = {starter_file.path for starter_file in scenario.starter_files_json}
+
+    assert "pom.xml" in paths
+    assert any(path.startswith("src/main/java/") and path.endswith(".java") for path in starter_paths)
+    assert any(path.startswith("src/test/java/") and path.endswith(".java") for path in visible_test_paths)
+    assert not any(path.endswith(".py") for path in paths)
+    assert "requirements.txt" not in paths
+    assert "app/main.py" not in paths
+    assert "pytest" not in "\n".join(project_file.content.lower() for project_file in scenario.project.files)
+
+
 def test_create_interview_and_generate_scenario_with_mocked_ai_service(client: TestClient) -> None:
     token = _register_admin(client)
     headers = {"Authorization": f"Bearer {token}"}
@@ -414,6 +470,67 @@ def test_scenario_generator_parses_mocked_ai_project_json(monkeypatch: pytest.Mo
     assert len(result.scenario.project.files) == 7
     assert any(project_file.file_type.value == "data" for project_file in result.scenario.project.files)
     assert any(project_file.is_hidden for project_file in result.scenario.project.files)
+
+
+def test_java_spring_boot_generation_returns_java_project_when_openai_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+
+    result = ScenarioGenerator().generate(_java_spring_interview())
+
+    assert result.source == "fallback"
+    assert result.model is None
+    _assert_java_spring_boot_scenario(result.scenario)
+    assert "pagination" in result.scenario.bug_description.lower()
+
+
+def test_python_fastapi_selection_still_returns_python_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+
+    result = ScenarioGenerator().generate(_fastapi_interview())
+
+    assert result.source == "fallback"
+    assert result.scenario.language == "python"
+    assert result.scenario.framework == "FastAPI"
+    assert result.scenario.validation_command in {"pytest", "python -m pytest"}
+    assert result.scenario.project is not None
+    paths = {project_file.path for project_file in result.scenario.project.files}
+    assert "app/main.py" in paths
+    assert any(path.endswith(".py") for path in paths)
+    assert not any(path.startswith("src/main/java/") for path in paths)
+
+
+def test_wrong_language_ai_output_retries_then_uses_java_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(settings, "openai_model", "test-model")
+    wrong_language_payload = _seed_payload("fastapi-pagination")
+    calls: list[int] = []
+
+    class FakeResponses:
+        def create(self, **_: object) -> SimpleNamespace:
+            calls.append(1)
+            return SimpleNamespace(output_text=json.dumps(wrong_language_payload))
+
+    class FakeOpenAI:
+        def __init__(self, **_: object) -> None:
+            self.responses = FakeResponses()
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    result = ScenarioGenerator().generate(_java_spring_interview())
+
+    assert len(calls) == 2
+    assert result.source == "fallback"
+    assert result.model == "test-model"
+    _assert_java_spring_boot_scenario(result.scenario)
+
+
+def test_java_spring_boot_parser_rejects_python_project() -> None:
+    with pytest.raises(Exception):
+        parse_generated_project_json(json.dumps(_seed_payload("fastapi-pagination")), interview=_java_spring_interview())
 
 
 def test_project_json_parser_rejects_missing_data_file() -> None:
@@ -567,6 +684,10 @@ def test_seed_catalog_contains_executable_private_solutions() -> None:
     seeds = seed_scenarios()
     assert len(seeds) >= 8
     assert any(seed.key == "fastapi-pagination" for seed in seeds)
+    assert sum(1 for seed in seeds if seed.target_kind == "java_spring_boot") >= 3
+    assert any(seed.key == "spring-boot-pagination" for seed in seeds)
+    assert any(seed.key == "spring-boot-validation" for seed in seeds)
+    assert any(seed.key == "spring-boot-org-access" for seed in seeds)
     assert any(seed.key == "rag-metadata" for seed in seeds)
     assert any(seed.key == "security-org-access" for seed in seeds)
 
@@ -589,7 +710,7 @@ def test_seed_catalog_contains_executable_private_solutions() -> None:
         assert envelope.expected_solution_files_json
         assert envelope.test_files_json
         visible_tests = "\n".join(test_file.content for test_file in envelope.test_files_json)
-        assert "assert" in visible_tests or "expect(" in visible_tests
+        assert "assert" in visible_tests or "expect(" in visible_tests or "andExpect(" in visible_tests
         starter_by_path = {file_payload.path: file_payload.content for file_payload in envelope.starter_files_json}
         assert any(starter_by_path.get(solution.path) != solution.content for solution in envelope.expected_solution_files_json)
 

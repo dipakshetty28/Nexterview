@@ -153,16 +153,23 @@ def _create_candidate(client: TestClient, *, email: str, full_name: str) -> None
         db.close()
 
 
-def _create_ready_interview(client: TestClient, *, token: str) -> str:
+def _create_ready_interview(
+    client: TestClient,
+    *,
+    token: str,
+    role_title: str = "Backend Engineer",
+    stack: list[str] | None = None,
+    interview_type: str = "Backend debugging",
+) -> str:
     create_response = client.post(
         "/api/interviews",
         headers={"Authorization": f"Bearer {token}"},
         json={
-            "role_title": "Backend Engineer",
+            "role_title": role_title,
             "seniority": "Senior",
-            "stack": ["Python", "FastAPI", "PostgreSQL"],
+            "stack": stack or ["Python", "FastAPI", "PostgreSQL"],
             "difficulty": "Intermediate",
-            "interview_type": "Backend debugging",
+            "interview_type": interview_type,
             "duration_minutes": 75,
             "allowed_ai_mode": "Pair Programmer Mode",
             "evaluation_criteria": ["Correctness", "Debugging", "AI validation"],
@@ -758,6 +765,59 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert delete_response.status_code == 204
+
+
+def test_candidate_java_spring_scenario_is_stack_matched_and_safe(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    _create_candidate(client, email="java-candidate@example.com", full_name="Java Candidate")
+    interview_id = _create_ready_interview(
+        client,
+        token=admin_token,
+        stack=["Java", "Spring Boot", "PostgreSQL"],
+        interview_type="Backend debugging",
+    )
+    invite_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "java-candidate@example.com"},
+    )
+    assert invite_response.status_code == 201
+    raw_invite_token = urlparse(invite_response.json()["invite_url"]).path.rsplit("/", 1)[-1]
+    candidate_login = client.post(
+        "/api/auth/login",
+        json={"email": "java-candidate@example.com", "password": "StrongPass123!"},
+    )
+    assert candidate_login.status_code == 200
+    candidate_token = candidate_login.json()["access_token"]
+
+    start_response = client.post(
+        f"/api/invite/{raw_invite_token}/start",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+
+    assert start_response.status_code == 200
+    scenario = start_response.json()["scenario"]
+    assert scenario["language"] == "java"
+    assert scenario["framework"] == "Spring Boot"
+    assert scenario["validation_command"] == "mvn test"
+    assert "expected_solution_files_json" not in scenario
+    assert "hidden_evaluation_points" not in scenario
+    assert "hidden_rubric" not in scenario
+    assert "interviewer_rubric" not in scenario
+    assert "bug_description_internal" not in scenario
+    assert "expected_solution_summary" not in scenario
+
+    project_paths = {project_file["path"] for project_file in scenario["project"]["files"]}
+    test_paths = {test_file["path"] for test_file in scenario["test_files_json"]}
+    assert "pom.xml" in project_paths
+    assert any(path.startswith("src/main/java/") and path.endswith(".java") for path in project_paths)
+    assert any(path.startswith("src/test/java/") and path.endswith(".java") for path in test_paths)
+    assert not any(path.endswith(".py") for path in project_paths)
+    assert "requirements.txt" not in project_paths
 
 
 def test_candidate_submission_pushes_changed_files_to_github_when_configured(

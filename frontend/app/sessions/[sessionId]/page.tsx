@@ -644,6 +644,21 @@ function TaskPanel({ session }: { session: CandidateSession }) {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">Task</p>
           <h1 className="mt-2 text-xl font-semibold tracking-tight text-slate-50">{scenario.title}</h1>
           <p className="mt-3 text-sm leading-6 text-slate-300">{scenario.business_context}</p>
+          <div className="mt-4 grid gap-2 text-xs text-slate-300">
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded border border-slate-700 bg-slate-950 px-2 py-1">
+                Language: <span className="font-semibold text-slate-100">{sanitizeCandidateText(scenario.language || "Not specified")}</span>
+              </span>
+              <span className="rounded border border-slate-700 bg-slate-950 px-2 py-1">
+                Framework: <span className="font-semibold text-slate-100">{sanitizeCandidateText(scenario.framework || "Not specified")}</span>
+              </span>
+            </div>
+            {scenario.validation_command ? (
+              <div className="rounded border border-slate-800 bg-slate-950/70 px-2 py-1 font-mono text-[11px] text-cyan-100">
+                Validation: {sanitizeCandidateText(scenario.validation_command)}
+              </div>
+            ) : null}
+          </div>
         </section>
 
         {scenario.candidate_instructions ? (

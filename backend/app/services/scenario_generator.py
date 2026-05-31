@@ -12,6 +12,7 @@ from app.models.interview import Interview
 from app.schemas.project import AIGeneratedProjectEnvelope, GeneratedProjectFile, GeneratedScenarioProject
 from app.schemas.scenario import GeneratedScenario, ScenarioFilePayload
 from app.services.scenario_seed_catalog import fallback_envelope_for_interview
+from app.services.scenario_targets import normalize_scenario_target, validate_envelope_matches_target
 
 logger = logging.getLogger(__name__)
 
@@ -34,39 +35,58 @@ class ScenarioGenerator:
 
         try:
             from openai import OpenAI
-
-            client = OpenAI(
-                api_key=settings.openai_api_key,
-                timeout=settings.openai_request_timeout_seconds,
-            )
-            response = client.responses.create(
-                model=settings.openai_model,
-                input=[
-                    {
-                        "role": "system",
-                        "content": _system_prompt(),
-                    },
-                    {
-                        "role": "user",
-                        "content": _build_generation_prompt(interview),
-                    },
-                ],
-            )
-            output_text = response.output_text.strip()
-            if not output_text:
-                raise ValueError("OpenAI returned an empty project generation response.")
-            return ScenarioGenerationResult(
-                scenario=parse_generated_project_json(output_text, interview=interview),
-                source="openai",
-                model=settings.openai_model,
-            )
         except Exception:
-            logger.warning("OpenAI project generation failed; using fallback project.", exc_info=True)
+            logger.warning("OpenAI client import failed; using fallback project.", exc_info=True)
             return ScenarioGenerationResult(
                 scenario=build_fallback_scenario(interview),
                 source="fallback",
                 model=settings.openai_model,
             )
+
+        client = OpenAI(
+            api_key=settings.openai_api_key,
+            timeout=settings.openai_request_timeout_seconds,
+        )
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                response = client.responses.create(
+                    model=settings.openai_model,
+                    input=[
+                        {
+                            "role": "system",
+                            "content": _system_prompt(),
+                        },
+                        {
+                            "role": "user",
+                            "content": _build_generation_prompt(interview),
+                        },
+                    ],
+                )
+                output_text = response.output_text.strip()
+                if not output_text:
+                    raise ValueError("OpenAI returned an empty project generation response.")
+                return ScenarioGenerationResult(
+                    scenario=parse_generated_project_json(output_text, interview=interview),
+                    source="openai",
+                    model=settings.openai_model,
+                )
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "OpenAI project generation attempt %s failed validation; %s.",
+                    attempt + 1,
+                    "retrying" if attempt == 0 else "using fallback project",
+                    exc_info=True,
+                )
+
+        if last_error is not None:
+            logger.info("Stack-matched fallback selected after OpenAI generation failure: %s", last_error)
+        return ScenarioGenerationResult(
+            scenario=build_fallback_scenario(interview),
+            source="fallback",
+            model=settings.openai_model,
+        )
 
 
 def parse_generated_project_json(raw_json: str, *, interview: Interview) -> GeneratedScenario:
@@ -76,12 +96,22 @@ def parse_generated_project_json(raw_json: str, *, interview: Interview) -> Gene
         logger.warning("Generated project JSON failed validation.", exc_info=True)
         raise
 
+    validate_envelope_matches_target(envelope, _target_for_interview(interview))
     return _scenario_from_envelope(envelope=envelope, interview=interview)
 
 
 def build_fallback_scenario(interview: Interview) -> GeneratedScenario:
     envelope = fallback_envelope_for_interview(interview)
+    validate_envelope_matches_target(envelope, _target_for_interview(interview))
     return _scenario_from_envelope(envelope=envelope, interview=interview)
+
+
+def _target_for_interview(interview: Interview):
+    return normalize_scenario_target(
+        stack=interview.stack,
+        role_title=interview.role_title,
+        interview_type=interview.interview_type,
+    )
 
 
 def _scenario_from_envelope(*, envelope: AIGeneratedProjectEnvelope, interview: Interview) -> GeneratedScenario:
@@ -172,7 +202,8 @@ def _system_prompt() -> str:
         '"bug_description_internal":"...","feature_request":"...","expected_behavior":"...",'
         '"validation_instructions":"...","candidate_instructions":"...","hidden_rubric":"..."},'
         '"project":{"project_name":"...","stack":"...","language":"...","framework":"...","package_manager":"...",'
-        '"install_command":"...","run_command":"...","test_command":"...","validation_command":"...",'
+        '"test_framework":"...","install_command":"...","run_command":"...","test_command":"...",'
+        '"validation_command":"...",'
         '"entrypoint":"..."},'
         '"files":[{"path":"package.json","language":"json","file_type":"config","is_editable":true,'
         '"is_hidden":false,"content":"..."}],'
@@ -184,6 +215,9 @@ def _system_prompt() -> str:
         "The visible tests must fail against the starter files and pass against expected_solution_files. "
         "expected_solution_files are private interviewer/platform metadata and must include the corrected contents "
         "for each editable file that should change. "
+        "The generated files must match the selected language and framework exactly. If language is Java and "
+        "framework is Spring Boot, generate Maven or Gradle Spring Boot project files only. Do not generate Python, "
+        "FastAPI, pytest, Node, or React files. "
         "The install_command, run_command, and test_command fields are internal platform runner metadata only. "
         "Do not put dependency installation, local server, or CLI test commands in candidate_instructions, "
         "validation_instructions, README.md, TASK.md, or any candidate-facing docs. Describe the candidate environment "
@@ -193,6 +227,11 @@ def _system_prompt() -> str:
 
 def _build_generation_prompt(interview: Interview) -> str:
     variation = _controlled_variation(interview)
+    target = normalize_scenario_target(
+        stack=interview.stack,
+        role_title=interview.role_title,
+        interview_type=interview.interview_type,
+    )
     payload = {
         "role_title": interview.role_title,
         "seniority": interview.seniority,
@@ -203,13 +242,15 @@ def _build_generation_prompt(interview: Interview) -> str:
         "allowed_ai_mode": interview.allowed_ai_mode,
         "evaluation_criteria": interview.evaluation_criteria,
         "supported_stack_selection": _stack_generation_guidance(interview.stack),
+        "normalized_scenario_target": target.prompt_payload() if target is not None else None,
         "controlled_variation": variation,
     }
     return (
         "Generate one small but realistic runnable interview project from this configuration. "
-        "Supported targets include React + Next.js, Python + FastAPI, TypeScript/Node, full-stack, platform, "
+        "Supported targets include Java + Spring Boot, React + Next.js, Python + FastAPI, TypeScript/Node, full-stack, platform, "
         "security, and AI/RAG engineering tasks. "
-        "If the selected stack does not clearly match one of those, generate a generic TypeScript/Node project. "
+        "Use the normalized_scenario_target exactly when it is present. Do not silently switch to Python or any "
+        "other stack if the selected stack names another language or framework. "
         "The task must be role-aware, stack-aware, difficulty-aware, and interview-type-aware. "
         "Avoid generic LeetCode prompts, vague build-a-function tasks, and repeated payment retry bugs. "
         "Use the controlled variation values for domain, failure type, and task type unless the interview "
@@ -222,14 +263,13 @@ def _build_generation_prompt(interview: Interview) -> str:
 
 
 def _stack_generation_guidance(stack: list[str]) -> str:
-    normalized = " ".join(stack).lower()
-    if "react" in normalized or "next" in normalized:
-        return "Generate a React + Next.js project."
-    if "fastapi" in normalized or "python" in normalized:
-        return "Generate a Python + FastAPI project."
-    if "express" in normalized or "node" in normalized:
-        return "Generate a Node.js + Express project."
-    return "Generate a generic TypeScript/Node project."
+    target = normalize_scenario_target(stack=stack)
+    if target is None:
+        return "No supported stack target was detected; return an error rather than generating a mismatched project."
+    return (
+        f"Generate a {target.language} + {target.framework} project using {target.package_manager}, "
+        f"{target.test_framework}, and validation command `{target.validation_command}`."
+    )
 
 
 def _entrypoint_file(envelope: AIGeneratedProjectEnvelope):

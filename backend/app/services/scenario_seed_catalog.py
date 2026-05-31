@@ -4,11 +4,17 @@ from dataclasses import dataclass
 
 from app.models.interview import Interview
 from app.schemas.project import AIGeneratedProjectEnvelope
+from app.services.scenario_targets import normalize_scenario_target
+
+
+class ScenarioTemplateUnavailableError(ValueError):
+    """Raised when no seed scenario matches the selected stack target."""
 
 
 @dataclass(frozen=True)
 class SeedScenario:
     key: str
+    target_kind: str
     role_keywords: tuple[str, ...]
     stack_keywords: tuple[str, ...]
     interview_keywords: tuple[str, ...]
@@ -24,6 +30,18 @@ def fallback_envelope_for_interview(interview: Interview) -> AIGeneratedProjectE
 
 
 def _best_seed_for_interview(interview: Interview) -> SeedScenario:
+    target = normalize_scenario_target(
+        stack=interview.stack,
+        role_title=interview.role_title,
+        interview_type=interview.interview_type,
+    )
+    if target is None:
+        raise ScenarioTemplateUnavailableError("No scenario template available for selected stack. Please choose a supported stack.")
+
+    candidates = [seed for seed in _SEED_SCENARIOS if seed.target_kind == target.kind]
+    if not candidates:
+        raise ScenarioTemplateUnavailableError("No scenario template available for selected stack. Please choose a supported stack.")
+
     config_text = " ".join(
         [
             interview.role_title,
@@ -42,7 +60,7 @@ def _best_seed_for_interview(interview: Interview) -> SeedScenario:
         keywords = (*seed.role_keywords, *seed.stack_keywords, *seed.interview_keywords)
         return sum(3 if _matches(keyword, stack_tokens, " ".join(interview.stack).lower()) else 1 for keyword in keywords if _matches(keyword, config_tokens, config_text))
 
-    return max(_SEED_SCENARIOS, key=score)
+    return max(candidates, key=score)
 
 
 def _tokens(value: str) -> set[str]:
@@ -107,6 +125,7 @@ def _project(
     language: str,
     framework: str,
     package_manager: str,
+    test_framework: str | None = None,
     install: str,
     run: str,
     test: str,
@@ -118,6 +137,7 @@ def _project(
         "language": language,
         "framework": framework,
         "package_manager": package_manager,
+        "test_framework": test_framework,
         "install_command": install,
         "run_command": run,
         "test_command": test,
@@ -463,20 +483,21 @@ _API_PERFORMANCE = {
     ),
     "project": _project(
         name="results-performance-service",
-        stack="Python + API Performance",
+        stack="Python + FastAPI + API Performance",
         language="python",
-        framework="Service",
+        framework="FastAPI",
         package_manager="pip",
         install="pip install -r requirements.txt",
-        run="python app/results.py",
+        run="uvicorn app.main:app --reload",
         test="pytest",
-        entrypoint="app/results.py",
+        entrypoint="app/main.py",
     ),
     "files": [
+        _file("app/main.py", "python", "source", "from fastapi import FastAPI\n\nfrom app.results import serialize_results\n\napp = FastAPI(title='Results Performance API')\n\n\n@app.get('/results')\ndef list_results():\n    return serialize_results([{'candidate_id': 'c1', 'score': 91}], load_candidate=lambda candidate_id: {'name': candidate_id})\n"),
         _file("app/results.py", "python", "source", "def serialize_results(results, load_candidate):\n    rows = []\n    for result in results:\n        candidate = load_candidate(result['candidate_id'])\n        rows.append({'score': result['score'], 'candidate_name': candidate['name']})\n    return rows\n"),
         _file("app/data/results.json", "json", "data", "[{\"candidate_id\":\"c1\",\"score\":91},{\"candidate_id\":\"c2\",\"score\":84},{\"candidate_id\":\"c3\",\"score\":77}]\n"),
         _file("tests/test_results.py", "python", "test", "from app.results import serialize_results\n\n\ndef test_serializer_uses_preloaded_candidates() -> None:\n    calls = []\n    def load_candidate(candidate_id):\n        calls.append(candidate_id)\n        return {'name': candidate_id}\n    rows = serialize_results([{'candidate_id': 'c1', 'score': 91}], load_candidate)\n    assert rows == [{'score': 91, 'candidate_name': 'Ada Lovelace'}]\n    assert calls == []\n"),
-        _file("requirements.txt", "text", "config", "pytest==8.2.2\n"),
+        _file("requirements.txt", "text", "config", "fastapi==0.115.6\nuvicorn==0.34.0\npytest==8.2.2\n"),
         _file("README.md", "markdown", "docs", "# Results Performance Service\n\nRemove the repeated candidate lookup pattern. Use the Nexterview Run button to check behavior.\n"),
     ],
     "expected_solution_files": [
@@ -567,6 +588,187 @@ _TS_WEIGHTED_SCORE = {
     ],
     "expected_solution_files": [
         _solution("src/score.ts", "typescript", "export type ScoreItem = { score: number; weight: number };\n\nexport function weightedScore(items: ScoreItem[]): number {\n  const weightTotal = items.reduce((sum, item) => sum + item.weight, 0);\n  if (weightTotal === 0) return 0;\n  const weighted = items.reduce((sum, item) => sum + item.score * item.weight, 0) / weightTotal;\n  return Math.round(weighted * 100) / 100;\n}\n"),
+    ],
+}
+
+
+_SPRING_BOOT_POM = (
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n"
+    "  xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\">\n"
+    "  <modelVersion>4.0.0</modelVersion>\n"
+    "  <parent>\n"
+    "    <groupId>org.springframework.boot</groupId>\n"
+    "    <artifactId>spring-boot-starter-parent</artifactId>\n"
+    "    <version>3.3.5</version>\n"
+    "    <relativePath />\n"
+    "  </parent>\n"
+    "  <groupId>com.interview</groupId>\n"
+    "  <artifactId>scenario-app</artifactId>\n"
+    "  <version>0.0.1-SNAPSHOT</version>\n"
+    "  <properties><java.version>21</java.version></properties>\n"
+    "  <dependencies>\n"
+    "    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>\n"
+    "    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>\n"
+    "    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>\n"
+    "  </dependencies>\n"
+    "  <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>\n"
+    "</project>\n"
+)
+
+
+_SPRING_BOOT_PAGINATION = {
+    "scenario": _scenario(
+        title="Fix candidate API pagination",
+        context=(
+            "Recruiting coordinators review large candidate lists before scheduling panels. The Spring Boot API "
+            "returns every candidate even when the UI requests a small page, causing slow loads for enterprise teams."
+        ),
+        summary="Fix the Spring Boot REST API so page and size parameters control candidate results.",
+        requirements=[
+            "Honor page and size query parameters in the service layer.",
+            "Keep the controller response as a list of candidates.",
+            "Clamp invalid page or size inputs safely before building the page request.",
+        ],
+        constraints=["Use the existing repository abstraction.", "Do not replace the Spring Boot project with another stack."],
+        bug="CandidateService returns repository.findAll() and ignores the provided pagination parameters.",
+        feature="Return deterministic paginated candidate lists for dashboard consumers.",
+        behavior="GET /api/candidates?page=1&size=2 returns the second page with two candidates instead of every record.",
+        instructions="Fix the service behavior, validate with the workspace checks, and explain the pagination edge cases you handled.",
+        rubric=(
+            "Candidate uses PageRequest or equivalent pagination rather than filtering in tests. "
+            "Candidate preserves the controller contract and explains how the failing test proves the fix."
+        ),
+    ),
+    "project": _project(
+        name="spring-candidate-pagination",
+        stack="Java + Spring Boot + Maven",
+        language="java",
+        framework="Spring Boot",
+        package_manager="Maven",
+        test_framework="JUnit",
+        install="mvn dependency:resolve",
+        run="mvn spring-boot:run",
+        test="mvn test",
+        entrypoint="src/main/java/com/interview/app/Application.java",
+    ),
+    "files": [
+        _file("pom.xml", "xml", "config", _SPRING_BOOT_POM),
+        _file("src/main/java/com/interview/app/Application.java", "java", "source", "package com.interview.app;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n}\n"),
+        _file("src/main/java/com/interview/app/controller/CandidateController.java", "java", "source", "package com.interview.app.controller;\n\nimport com.interview.app.model.Candidate;\nimport com.interview.app.service.CandidateService;\nimport java.util.List;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.RequestParam;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\npublic class CandidateController {\n    private final CandidateService candidateService;\n\n    public CandidateController(CandidateService candidateService) {\n        this.candidateService = candidateService;\n    }\n\n    @GetMapping(\"/api/candidates\")\n    public List<Candidate> listCandidates(@RequestParam(defaultValue = \"0\") int page, @RequestParam(defaultValue = \"25\") int size) {\n        return candidateService.listCandidates(page, size);\n    }\n}\n"),
+        _file("src/main/java/com/interview/app/model/Candidate.java", "java", "source", "package com.interview.app.model;\n\npublic record Candidate(String id, String name, String status) {}\n"),
+        _file("src/main/java/com/interview/app/repository/CandidateRepository.java", "java", "source", "package com.interview.app.repository;\n\nimport com.interview.app.model.Candidate;\nimport java.util.List;\nimport org.springframework.data.domain.Pageable;\nimport org.springframework.stereotype.Repository;\n\n@Repository\npublic class CandidateRepository {\n    private final List<Candidate> candidates = List.of(\n        new Candidate(\"cand_1\", \"Ada Lovelace\", \"active\"),\n        new Candidate(\"cand_2\", \"Grace Hopper\", \"active\"),\n        new Candidate(\"cand_3\", \"Katherine Johnson\", \"paused\"),\n        new Candidate(\"cand_4\", \"Edsger Dijkstra\", \"active\")\n    );\n\n    public List<Candidate> findAll() {\n        return candidates;\n    }\n\n    public List<Candidate> findPage(Pageable pageable) {\n        int start = Math.toIntExact(pageable.getOffset());\n        int end = Math.min(start + pageable.getPageSize(), candidates.size());\n        if (start >= candidates.size()) {\n            return List.of();\n        }\n        return candidates.subList(start, end);\n    }\n}\n"),
+        _file("src/main/java/com/interview/app/service/CandidateService.java", "java", "source", "package com.interview.app.service;\n\nimport com.interview.app.model.Candidate;\nimport com.interview.app.repository.CandidateRepository;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class CandidateService {\n    private final CandidateRepository repository;\n\n    public CandidateService(CandidateRepository repository) {\n        this.repository = repository;\n    }\n\n    public List<Candidate> listCandidates(int page, int size) {\n        return repository.findAll();\n    }\n}\n"),
+        _file("src/main/resources/candidates.json", "json", "data", "[{\"id\":\"cand_1\",\"name\":\"Ada Lovelace\"},{\"id\":\"cand_2\",\"name\":\"Grace Hopper\"},{\"id\":\"cand_3\",\"name\":\"Katherine Johnson\"}]\n"),
+        _file("src/test/java/com/interview/app/CandidateControllerTest.java", "java", "test", "package com.interview.app;\n\nimport static org.hamcrest.Matchers.hasSize;\nimport static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;\nimport org.springframework.boot.test.context.SpringBootTest;\nimport org.springframework.test.web.servlet.MockMvc;\n\n@SpringBootTest\n@AutoConfigureMockMvc\nclass CandidateControllerTest {\n    @Autowired MockMvc mockMvc;\n\n    @Test\n    void appliesPageAndSizeParameters() throws Exception {\n        mockMvc.perform(get(\"/api/candidates?page=1&size=2\"))\n            .andExpect(status().isOk())\n            .andExpect(jsonPath(\"$\", hasSize(2)))\n            .andExpect(jsonPath(\"$[0].id\").value(\"cand_3\"));\n    }\n}\n"),
+        _file("README.md", "markdown", "docs", "# Spring Candidate Pagination\n\nFix the candidate listing pagination in the Spring Boot service. Use the Nexterview Run button to check your work.\n"),
+    ],
+    "expected_solution_files": [
+        _solution("src/main/java/com/interview/app/service/CandidateService.java", "java", "package com.interview.app.service;\n\nimport com.interview.app.model.Candidate;\nimport com.interview.app.repository.CandidateRepository;\nimport java.util.List;\nimport org.springframework.data.domain.PageRequest;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class CandidateService {\n    private final CandidateRepository repository;\n\n    public CandidateService(CandidateRepository repository) {\n        this.repository = repository;\n    }\n\n    public List<Candidate> listCandidates(int page, int size) {\n        int safePage = Math.max(page, 0);\n        int safeSize = Math.max(size, 1);\n        return repository.findPage(PageRequest.of(safePage, safeSize));\n    }\n}\n"),
+    ],
+}
+
+
+_SPRING_BOOT_VALIDATION = {
+    "scenario": _scenario(
+        title="Validate candidate creation requests",
+        context=(
+            "Recruiting operations imports candidates from partner systems. Blank emails and unsupported statuses "
+            "are being accepted by a Spring Boot API and later breaking automation."
+        ),
+        summary="Add Spring validation so invalid candidate creation requests are rejected.",
+        requirements=[
+            "Reject blank or malformed email addresses.",
+            "Reject statuses outside active, paused, or archived.",
+            "Keep valid candidate creation requests accepted.",
+        ],
+        constraints=["Use Jakarta Bean Validation through Spring MVC.", "Do not implement fragile manual string checks in the service."],
+        bug="The request body has plain String fields and the controller does not trigger validation.",
+        feature="Enforce a safe candidate creation contract at the API boundary.",
+        behavior="Invalid email or status payloads return HTTP 400 while a valid payload returns HTTP 201.",
+        instructions="Fix validation at the model/controller boundary and explain why invalid payloads are rejected.",
+        rubric=(
+            "Candidate uses Jakarta validation annotations and @Valid. Candidate keeps service logic focused. "
+            "Candidate validates both negative and positive request paths."
+        ),
+    ),
+    "project": _project(
+        name="spring-candidate-validation",
+        stack="Java + Spring Boot + Maven",
+        language="java",
+        framework="Spring Boot",
+        package_manager="Maven",
+        test_framework="JUnit",
+        install="mvn dependency:resolve",
+        run="mvn spring-boot:run",
+        test="mvn test",
+        entrypoint="src/main/java/com/interview/app/Application.java",
+    ),
+    "files": [
+        _file("pom.xml", "xml", "config", _SPRING_BOOT_POM),
+        _file("src/main/java/com/interview/app/Application.java", "java", "source", "package com.interview.app;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n}\n"),
+        _file("src/main/java/com/interview/app/model/Candidate.java", "java", "source", "package com.interview.app.model;\n\npublic class Candidate {\n    private String email;\n    private String status;\n\n    public String getEmail() { return email; }\n    public void setEmail(String email) { this.email = email; }\n    public String getStatus() { return status; }\n    public void setStatus(String status) { this.status = status; }\n}\n"),
+        _file("src/main/java/com/interview/app/controller/CandidateController.java", "java", "source", "package com.interview.app.controller;\n\nimport com.interview.app.model.Candidate;\nimport com.interview.app.service.CandidateService;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.ResponseStatus;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\npublic class CandidateController {\n    private final CandidateService candidateService;\n\n    public CandidateController(CandidateService candidateService) {\n        this.candidateService = candidateService;\n    }\n\n    @PostMapping(\"/api/candidates\")\n    @ResponseStatus(HttpStatus.CREATED)\n    public Candidate create(@RequestBody Candidate candidate) {\n        return candidateService.create(candidate);\n    }\n}\n"),
+        _file("src/main/java/com/interview/app/service/CandidateService.java", "java", "source", "package com.interview.app.service;\n\nimport com.interview.app.model.Candidate;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class CandidateService {\n    public Candidate create(Candidate candidate) {\n        return candidate;\n    }\n}\n"),
+        _file("src/main/resources/candidate-statuses.json", "json", "data", "[\"active\",\"paused\",\"archived\"]\n"),
+        _file("src/test/java/com/interview/app/CandidateControllerTest.java", "java", "test", "package com.interview.app;\n\nimport static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;\nimport org.springframework.boot.test.context.SpringBootTest;\nimport org.springframework.http.MediaType;\nimport org.springframework.test.web.servlet.MockMvc;\n\n@SpringBootTest\n@AutoConfigureMockMvc\nclass CandidateControllerTest {\n    @Autowired MockMvc mockMvc;\n\n    @Test\n    void rejectsBlankEmail() throws Exception {\n        mockMvc.perform(post(\"/api/candidates\").contentType(MediaType.APPLICATION_JSON).content(\"{\\\"email\\\":\\\"\\\",\\\"status\\\":\\\"active\\\"}\"))\n            .andExpect(status().isBadRequest());\n    }\n\n    @Test\n    void rejectsInvalidStatus() throws Exception {\n        mockMvc.perform(post(\"/api/candidates\").contentType(MediaType.APPLICATION_JSON).content(\"{\\\"email\\\":\\\"dev@example.com\\\",\\\"status\\\":\\\"deleted\\\"}\"))\n            .andExpect(status().isBadRequest());\n    }\n}\n"),
+        _file("README.md", "markdown", "docs", "# Spring Candidate Validation\n\nTighten candidate creation validation. Use the Nexterview Run button to check the API contract.\n"),
+    ],
+    "expected_solution_files": [
+        _solution("src/main/java/com/interview/app/model/Candidate.java", "java", "package com.interview.app.model;\n\nimport jakarta.validation.constraints.Email;\nimport jakarta.validation.constraints.NotBlank;\nimport jakarta.validation.constraints.Pattern;\n\npublic class Candidate {\n    @NotBlank\n    @Email\n    private String email;\n\n    @NotBlank\n    @Pattern(regexp = \"active|paused|archived\")\n    private String status;\n\n    public String getEmail() { return email; }\n    public void setEmail(String email) { this.email = email; }\n    public String getStatus() { return status; }\n    public void setStatus(String status) { this.status = status; }\n}\n"),
+        _solution("src/main/java/com/interview/app/controller/CandidateController.java", "java", "package com.interview.app.controller;\n\nimport com.interview.app.model.Candidate;\nimport com.interview.app.service.CandidateService;\nimport jakarta.validation.Valid;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.ResponseStatus;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\npublic class CandidateController {\n    private final CandidateService candidateService;\n\n    public CandidateController(CandidateService candidateService) {\n        this.candidateService = candidateService;\n    }\n\n    @PostMapping(\"/api/candidates\")\n    @ResponseStatus(HttpStatus.CREATED)\n    public Candidate create(@Valid @RequestBody Candidate candidate) {\n        return candidateService.create(candidate);\n    }\n}\n"),
+    ],
+}
+
+
+_SPRING_BOOT_ORG_ACCESS = {
+    "scenario": _scenario(
+        title="Enforce organization-scoped result access",
+        context=(
+            "Enterprise hiring teams require tenant isolation. An audit found that a Spring Boot result endpoint "
+            "can return another organization's interview result when given a valid result id."
+        ),
+        summary="Fix the Spring Boot service so result lookups are scoped by organization id.",
+        requirements=[
+            "Filter result reads by both result id and organization id.",
+            "Return not found for cross-organization access.",
+            "Preserve successful same-organization reads.",
+        ],
+        constraints=["Do not rely on frontend filtering.", "Do not leak whether another organization's result exists."],
+        bug="ResultService fetches by result id only and ignores organizationId.",
+        feature="Add tenant-safe authorization behavior to result reads.",
+        behavior="A request from org_b cannot read a result owned by org_a, even with the correct result id.",
+        instructions="Fix the authorization path and summarize the tenant-isolation risk you addressed.",
+        rubric=(
+            "Candidate enforces server-side organization scoping. Candidate avoids information leakage. "
+            "Candidate validates allowed and denied paths."
+        ),
+    ),
+    "project": _project(
+        name="spring-result-access",
+        stack="Java + Spring Boot + Maven",
+        language="java",
+        framework="Spring Boot",
+        package_manager="Maven",
+        test_framework="JUnit",
+        install="mvn dependency:resolve",
+        run="mvn spring-boot:run",
+        test="mvn test",
+        entrypoint="src/main/java/com/interview/app/Application.java",
+    ),
+    "files": [
+        _file("pom.xml", "xml", "config", _SPRING_BOOT_POM),
+        _file("src/main/java/com/interview/app/Application.java", "java", "source", "package com.interview.app;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n}\n"),
+        _file("src/main/java/com/interview/app/model/Result.java", "java", "source", "package com.interview.app.model;\n\npublic record Result(String id, String organizationId, int score) {}\n"),
+        _file("src/main/java/com/interview/app/repository/ResultRepository.java", "java", "source", "package com.interview.app.repository;\n\nimport com.interview.app.model.Result;\nimport java.util.Map;\nimport java.util.Optional;\nimport org.springframework.stereotype.Repository;\n\n@Repository\npublic class ResultRepository {\n    private final Map<String, Result> results = Map.of(\n        \"res_1\", new Result(\"res_1\", \"org_a\", 91),\n        \"res_2\", new Result(\"res_2\", \"org_b\", 84)\n    );\n\n    public Optional<Result> findById(String resultId) {\n        return Optional.ofNullable(results.get(resultId));\n    }\n}\n"),
+        _file("src/main/java/com/interview/app/service/ResultService.java", "java", "source", "package com.interview.app.service;\n\nimport com.interview.app.model.Result;\nimport com.interview.app.repository.ResultRepository;\nimport org.springframework.stereotype.Service;\nimport org.springframework.web.server.ResponseStatusException;\nimport org.springframework.http.HttpStatus;\n\n@Service\npublic class ResultService {\n    private final ResultRepository repository;\n\n    public ResultService(ResultRepository repository) {\n        this.repository = repository;\n    }\n\n    public Result getResult(String resultId, String organizationId) {\n        return repository.findById(resultId)\n            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));\n    }\n}\n"),
+        _file("src/main/java/com/interview/app/controller/ResultController.java", "java", "source", "package com.interview.app.controller;\n\nimport com.interview.app.model.Result;\nimport com.interview.app.service.ResultService;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.PathVariable;\nimport org.springframework.web.bind.annotation.RequestHeader;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\npublic class ResultController {\n    private final ResultService resultService;\n\n    public ResultController(ResultService resultService) {\n        this.resultService = resultService;\n    }\n\n    @GetMapping(\"/api/results/{resultId}\")\n    public Result getResult(@PathVariable String resultId, @RequestHeader(\"X-Organization-Id\") String organizationId) {\n        return resultService.getResult(resultId, organizationId);\n    }\n}\n"),
+        _file("src/main/resources/results.json", "json", "data", "{\"res_1\":{\"organizationId\":\"org_a\",\"score\":91},\"res_2\":{\"organizationId\":\"org_b\",\"score\":84}}\n"),
+        _file("src/test/java/com/interview/app/ResultControllerTest.java", "java", "test", "package com.interview.app;\n\nimport static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;\nimport org.springframework.boot.test.context.SpringBootTest;\nimport org.springframework.test.web.servlet.MockMvc;\n\n@SpringBootTest\n@AutoConfigureMockMvc\nclass ResultControllerTest {\n    @Autowired MockMvc mockMvc;\n\n    @Test\n    void blocksCrossOrganizationResultAccess() throws Exception {\n        mockMvc.perform(get(\"/api/results/res_1\").header(\"X-Organization-Id\", \"org_b\"))\n            .andExpect(status().isNotFound());\n    }\n\n    @Test\n    void allowsSameOrganizationResultAccess() throws Exception {\n        mockMvc.perform(get(\"/api/results/res_1\").header(\"X-Organization-Id\", \"org_a\"))\n            .andExpect(status().isOk())\n            .andExpect(jsonPath(\"$.score\").value(91));\n    }\n}\n"),
+        _file("README.md", "markdown", "docs", "# Spring Result Access\n\nFix organization-scoped result access. Use the Nexterview Run button to check authorization behavior.\n"),
+    ],
+    "expected_solution_files": [
+        _solution("src/main/java/com/interview/app/service/ResultService.java", "java", "package com.interview.app.service;\n\nimport com.interview.app.model.Result;\nimport com.interview.app.repository.ResultRepository;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.stereotype.Service;\nimport org.springframework.web.server.ResponseStatusException;\n\n@Service\npublic class ResultService {\n    private final ResultRepository repository;\n\n    public ResultService(ResultRepository repository) {\n        this.repository = repository;\n    }\n\n    public Result getResult(String resultId, String organizationId) {\n        Result result = repository.findById(resultId)\n            .filter(candidate -> candidate.organizationId().equals(organizationId))\n            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));\n        return result;\n    }\n}\n"),
     ],
 }
 
@@ -705,13 +907,16 @@ _ORDERS_REVIEW = {
 
 
 _SEED_SCENARIOS = (
-    SeedScenario("orders-review", ("backend", "engineer"), ("python", "fastapi", "postgresql"), ("backend debugging", "debugging"), _ORDERS_REVIEW),
-    SeedScenario("fastapi-pagination", ("backend", "platform"), ("python", "fastapi", "postgresql"), ("debugging", "api", "pagination"), _FASTAPI_PAGINATION),
-    SeedScenario("fastapi-validation", ("backend", "api"), ("python", "fastapi", "pydantic"), ("validation", "api"), _FASTAPI_VALIDATION),
-    SeedScenario("next-hydration", ("frontend", "react"), ("react", "next", "typescript"), ("hydration", "frontend", "bug"), _NEXT_HYDRATION),
-    SeedScenario("full-stack-feedback", ("full-stack", "product"), ("react", "fastapi", "full-stack"), ("feature", "implementation"), _FULL_STACK_FEEDBACK),
-    SeedScenario("rag-metadata", ("ai", "rag", "platform"), ("python", "langchain", "rag"), ("ai engineering", "retrieval"), _RAG_METADATA),
-    SeedScenario("api-performance", ("backend", "platform"), ("python", "api", "postgresql"), ("performance", "n+1", "pagination"), _API_PERFORMANCE),
-    SeedScenario("security-org-access", ("security", "backend"), ("python", "fastapi", "auth"), ("security", "review", "authorization"), _SECURITY_ORG_ACCESS),
-    SeedScenario("typescript-weighted-score", ("typescript", "backend"), ("typescript", "node"), ("utility", "scoring", "refactor"), _TS_WEIGHTED_SCORE),
+    SeedScenario("spring-boot-pagination", "java_spring_boot", ("backend", "engineer"), ("java", "spring", "maven"), ("backend debugging", "pagination"), _SPRING_BOOT_PAGINATION),
+    SeedScenario("spring-boot-validation", "java_spring_boot", ("backend", "api"), ("java", "spring", "validation"), ("validation", "api"), _SPRING_BOOT_VALIDATION),
+    SeedScenario("spring-boot-org-access", "java_spring_boot", ("security", "backend"), ("java", "spring", "auth"), ("security", "authorization"), _SPRING_BOOT_ORG_ACCESS),
+    SeedScenario("orders-review", "python_fastapi", ("backend", "engineer"), ("python", "fastapi", "postgresql"), ("backend debugging", "debugging"), _ORDERS_REVIEW),
+    SeedScenario("fastapi-pagination", "python_fastapi", ("backend", "platform"), ("python", "fastapi", "postgresql"), ("debugging", "api", "pagination"), _FASTAPI_PAGINATION),
+    SeedScenario("fastapi-validation", "python_fastapi", ("backend", "api"), ("python", "fastapi", "pydantic"), ("validation", "api"), _FASTAPI_VALIDATION),
+    SeedScenario("next-hydration", "react_next", ("frontend", "react"), ("react", "next", "typescript"), ("hydration", "frontend", "bug"), _NEXT_HYDRATION),
+    SeedScenario("full-stack-feedback", "react_next", ("full-stack", "product"), ("react", "fastapi", "full-stack"), ("feature", "implementation"), _FULL_STACK_FEEDBACK),
+    SeedScenario("rag-metadata", "ai_rag", ("ai", "rag", "platform"), ("python", "langchain", "rag"), ("ai engineering", "retrieval"), _RAG_METADATA),
+    SeedScenario("api-performance", "python_fastapi", ("backend", "platform"), ("python", "api", "postgresql"), ("performance", "n+1", "pagination"), _API_PERFORMANCE),
+    SeedScenario("security-org-access", "python_fastapi", ("security", "backend"), ("python", "fastapi", "auth"), ("security", "review", "authorization"), _SECURITY_ORG_ACCESS),
+    SeedScenario("typescript-weighted-score", "node_express", ("typescript", "backend"), ("typescript", "node"), ("utility", "scoring", "refactor"), _TS_WEIGHTED_SCORE),
 )

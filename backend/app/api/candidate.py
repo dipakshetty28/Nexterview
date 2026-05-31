@@ -245,7 +245,7 @@ def _candidate_scenario_response(scenario: Scenario | None) -> CandidateScenario
         bug_description=scenario.bug_description,
         feature_request=scenario.feature_request,
         validation_instructions=_candidate_validation_instructions(scenario.validation_instructions),
-        validation_command="Use the Run button",
+        validation_command=scenario.validation_command or "Use the Run button",
         constraints=scenario.constraints,
         candidate_task_summary=scenario.candidate_task_summary,
         candidate_instructions=scenario.candidate_instructions,
