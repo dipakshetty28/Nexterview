@@ -68,12 +68,5 @@ class InterviewSubmissionResultRead(BaseModel):
     status: str
     submitted_at: datetime | None
     submission_id: UUID | None
-    branch_name: str | None
-    base_branch_name: str | None
-    commit_sha: str | None
-    repository_url: str | None
-    pull_request_url: str | None
-    push_status: str | None
-    push_error: str | None
     test_output: str | None
     notes: str | None

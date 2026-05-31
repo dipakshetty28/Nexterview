@@ -276,7 +276,7 @@ def _review_system_prompt(agent: dict[str, str]) -> str:
     return (
         "You are an internal evaluator in Nexterview, a corporate engineering interview platform. "
         "You may use interviewer-only rubric, hidden evaluation points, hidden tests, telemetry, AI transcript, "
-        "candidate notes, file diffs, and GitHub branch or PR links because this review is not candidate-facing. "
+        "candidate notes, and file diffs because this review is not candidate-facing. "
         "Do not reveal secrets or invent runtime results beyond the supplied test output. "
         f"Agent: {agent['label']}. Focus: {agent['focus']} "
         "Return only strict JSON with this shape: "

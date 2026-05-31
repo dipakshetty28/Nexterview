@@ -1745,8 +1745,9 @@ function CandidateSessionContent() {
                             <p className="mt-2 text-xs text-amber-300">Add a final explanation before submitting.</p>
                           ) : null}
                           {submission ? (
-                            <div className="mt-3 rounded-md border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
-                              Submitted at {formatSavedAt(submission.submitted_at)}.
+                            <div className="mt-3 grid gap-2 rounded-md border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
+                              <p>Submitted at {formatSavedAt(submission.submitted_at)}.</p>
+                              <p className="text-emerald-100">Your solution was saved for interviewer review.</p>
                             </div>
                           ) : null}
                         </div>

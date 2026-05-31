@@ -248,13 +248,6 @@ def list_interview_submissions(
             status=session.status.value,
             submitted_at=session.submitted_at,
             submission_id=submission.id if submission else None,
-            branch_name=submission.branch_name if submission else None,
-            base_branch_name=submission.base_branch_name if submission else None,
-            commit_sha=submission.commit_sha if submission else None,
-            repository_url=submission.repository_url if submission else None,
-            pull_request_url=submission.pull_request_url if submission else None,
-            push_status=submission.push_status if submission else None,
-            push_error=submission.push_error if submission else None,
             test_output=submission.test_output if submission else None,
             notes=submission.notes if submission else session.notes,
         )

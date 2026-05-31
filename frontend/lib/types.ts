@@ -67,6 +67,19 @@ export type ScenarioProject = {
   updated_at?: string;
 };
 
+export type CandidateScenarioProject = {
+  project_name: string;
+  stack: string[];
+  description?: string;
+  framework: string | null;
+  package_manager: string | null;
+  install_command: string | null;
+  run_command: string | null;
+  test_command: string | null;
+  entrypoint: string | null;
+  files: ProjectFile[];
+};
+
 export type WorkspaceFile = {
   id: string;
   project_file_id: string;
@@ -149,13 +162,6 @@ export type InterviewSubmissionResult = {
   status: "invited" | "started" | "submitted" | "reviewed";
   submitted_at: string | null;
   submission_id: string | null;
-  branch_name: string | null;
-  base_branch_name: string | null;
-  commit_sha: string | null;
-  repository_url: string | null;
-  pull_request_url: string | null;
-  push_status: string | null;
-  push_error: string | null;
   test_output: string | null;
   notes: string | null;
 };
@@ -196,16 +202,6 @@ export type ScoreBreakdownItem = {
   weighted_score: number | null;
 };
 
-export type GitHubReviewLinks = {
-  branch_name: string | null;
-  base_branch_name: string | null;
-  commit_sha: string | null;
-  repository_url: string | null;
-  pull_request_url: string | null;
-  push_status: string | null;
-  push_error: string | null;
-};
-
 export type AIUsageAnalysis = {
   candidate_prompt_count: number;
   assistant_response_count: number;
@@ -228,7 +224,6 @@ export type AITranscriptMessage = {
   role: "user" | "assistant";
   content: string;
   ai_mode: string;
-  ai_model: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
 };
@@ -265,8 +260,6 @@ export type ResultsDashboardItem = {
   reviewed_at: string | null;
   weighted_score: number | null;
   recommendation: string | null;
-  push_status: string | null;
-  pull_request_url: string | null;
   risk_flags: string[];
 };
 
@@ -278,7 +271,6 @@ export type SubmissionReviewSummary = {
   status: "invited" | "started" | "submitted" | "reviewed";
   changed_files: string[];
   file_diffs: FileDiff[];
-  github: GitHubReviewLinks;
   agent_reviews: AgentReview[];
   score_breakdown: ScoreBreakdownItem[];
   weighted_score: number | null;
@@ -378,7 +370,7 @@ export type CandidateSession = {
     validation_instructions: string;
     candidate_task_summary: string;
     candidate_instructions: string;
-    project: ScenarioProject | null;
+    project: CandidateScenarioProject | null;
   };
   submission: Submission | null;
   ai_messages: AIMessage[];
@@ -390,9 +382,7 @@ export type AIMessage = {
   candidate_id: string;
   role: "user" | "assistant";
   content: string;
-  code_snapshot: string | null;
   ai_mode: string;
-  ai_model: string | null;
   message_metadata: Record<string, unknown>;
   created_at: string;
 };
@@ -456,13 +446,6 @@ export type Submission = {
   test_output: string | null;
   submitted_files: Array<Record<string, unknown>>;
   file_diffs: Array<Record<string, unknown>>;
-  branch_name: string | null;
-  base_branch_name: string | null;
-  commit_sha: string | null;
-  repository_url: string | null;
-  pull_request_url: string | null;
-  push_status: string | null;
-  push_error: string | null;
   submitted_at: string;
   created_at: string;
   updated_at: string;
