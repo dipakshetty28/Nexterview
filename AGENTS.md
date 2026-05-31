@@ -18,3 +18,16 @@ Rules:
 - Use role-based access control.
 - Keep API contracts documented.
 - Run formatting/type checks/tests when possible.
+
+## Scenario Generation Hard Rule
+
+Generated scenarios must strictly match the selected stack, language, framework, package manager, and test framework.
+
+Examples:
+- Java + Spring Boot must generate Maven/Gradle project files with `src/main/java`, `src/test/java`, and `mvn test` or `gradle test`.
+- Python + FastAPI must generate Python files, FastAPI app files, pytest tests, and `python -m pytest`.
+- React/Next.js must generate TypeScript/TSX files and appropriate frontend tests/build validation.
+
+Never return Python files for a Java/Spring Boot interview.
+Never silently fallback to Python when another stack was selected.
+If stack-specific generation fails, retry once, then use a matching seed template, then return a clear error if no matching template exists.
