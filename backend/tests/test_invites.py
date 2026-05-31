@@ -64,6 +64,22 @@ _ = (
 )
 
 
+_SUBMISSION_TRANSPORT_FIELDS = {
+    "branch_name",
+    "base_branch_name",
+    "commit_sha",
+    "repository_url",
+    "pull_request_url",
+    "push_status",
+    "push_error",
+}
+
+
+def _assert_no_submission_transport_fields(payload: dict[str, object]) -> None:
+    for field in _SUBMISSION_TRANSPORT_FIELDS:
+        assert field not in payload
+
+
 @pytest.fixture(autouse=True)
 def _disable_github_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "github_token", "")
@@ -334,6 +350,9 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert session["scenario"]["project"]["install_command"] is None
     assert session["scenario"]["project"]["run_command"] is None
     assert session["scenario"]["project"]["test_command"] is None
+    assert "starter_branch_name" not in session["scenario"]["project"]
+    assert "starter_repository_url" not in session["scenario"]["project"]
+    assert "starter_push_status" not in session["scenario"]["project"]
     assert "install" not in session["scenario"]["validation_instructions"].lower()
     assert "pytest" not in session["scenario"]["validation_instructions"].lower()
     candidate_files = session["scenario"]["project"]["files"]
@@ -476,12 +495,19 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert ai_response.status_code == 201
     ai_exchange = ai_response.json()
     assert ai_exchange["user_message"]["role"] == "user"
-    assert "File: app/main.py" in ai_exchange["user_message"]["code_snapshot"]
+    assert "code_snapshot" not in ai_exchange["user_message"]
+    assert "ai_model" not in ai_exchange["user_message"]
+    assert ai_exchange["user_message"]["message_metadata"] == {
+        "current_file_path": "app/main.py",
+        "latest_test_output_included": True,
+        "notes_included": True,
+    }
     assert ai_exchange["assistant_message"]["role"] == "assistant"
-    assert ai_exchange["assistant_message"]["ai_model"] == "test-copilot"
+    assert "ai_model" not in ai_exchange["assistant_message"]
     assert "```python" in ai_exchange["assistant_message"]["content"]
     assert ai_exchange["assistant_message"]["message_metadata"]["confidence"] == "medium"
     assert ai_exchange["assistant_message"]["message_metadata"]["suggested_files"][0]["path"] == "app/main.py"
+    assert "source" not in ai_exchange["assistant_message"]["message_metadata"]
     assert ai_exchange["response"]["confidence"] == "medium"
     assert ai_exchange["response"]["suggested_files"][0]["path"] == "app/main.py"
 
@@ -498,7 +524,10 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
         },
     )
     assert follow_up_response.status_code == 201
-    assert "regression test" in follow_up_response.json()["assistant_message"]["content"]
+    follow_up_exchange = follow_up_response.json()
+    assert "regression test" in follow_up_exchange["assistant_message"]["content"]
+    assert "code_snapshot" not in follow_up_exchange["user_message"]
+    assert "ai_model" not in follow_up_exchange["assistant_message"]
 
     admin_ai_response = client.post(
         f"/api/sessions/{session['id']}/ai",
@@ -526,6 +555,7 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     submission = submit_response.json()
     assert submission["code"] == edited_code
     assert submission["notes"] == notes
+    _assert_no_submission_transport_fields(submission)
     submitted_paths = {submitted_file["path"] for submitted_file in submission["submitted_files"]}
     assert "app/main.py" in submitted_paths
     assert "tests/test_orders_hidden.py" not in submitted_paths
@@ -538,6 +568,7 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     submitted_session = submitted_session_response.json()
     assert submitted_session["status"] == "reviewed"
     assert submitted_session["submission"]["id"] == submission["id"]
+    _assert_no_submission_transport_fields(submitted_session["submission"])
 
     post_submit_edit_response = client.post(
         f"/api/sessions/{session['id']}/events",
@@ -769,11 +800,8 @@ def test_candidate_submission_pushes_changed_files_to_github_when_configured(
     )
     assert submit_response.status_code == 201
     submission = submit_response.json()
-    assert submission["push_status"] == "pushed"
-    assert submission["branch_name"] == "interview-branch"
-    assert submission["base_branch_name"] == "scenario-interview-starter"
-    assert submission["commit_sha"] == "abc123"
-    assert submission["pull_request_url"] == "https://github.com/example/repo/pull/10"
+    _assert_no_submission_transport_fields(submission)
+    assert submission["submitted_files"]
 
     results_response = client.get(
         f"/api/interviews/{session['interview_id']}/submissions",
@@ -781,10 +809,7 @@ def test_candidate_submission_pushes_changed_files_to_github_when_configured(
     )
     assert results_response.status_code == 200
     results = results_response.json()
-    assert results[0]["push_status"] == "pushed"
-    assert results[0]["branch_name"] == "interview-branch"
-    assert results[0]["base_branch_name"] == "scenario-interview-starter"
-    assert results[0]["pull_request_url"] == "https://github.com/example/repo/pull/10"
+    _assert_no_submission_transport_fields(results[0])
 
 
 def test_candidate_submission_falls_back_when_github_is_not_configured(
@@ -805,9 +830,7 @@ def test_candidate_submission_falls_back_when_github_is_not_configured(
     )
     assert submit_response.status_code == 201
     submission = submit_response.json()
-    assert submission["push_status"] == "not_configured"
-    assert submission["branch_name"] is None
-    assert submission["commit_sha"] is None
+    _assert_no_submission_transport_fields(submission)
     assert submission["submitted_files"]
 
 
@@ -839,9 +862,7 @@ def test_candidate_submission_records_failed_github_push_without_failing_submiss
     )
     assert submit_response.status_code == 201
     submission = submit_response.json()
-    assert submission["push_status"] == "failed"
-    assert submission["branch_name"] == "interview-branch"
-    assert "HTTP 403" in submission["push_error"]
+    _assert_no_submission_transport_fields(submission)
     assert submission["submitted_files"]
 
 
@@ -986,9 +1007,7 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
             assert any(message["role"] == "user" for message in context["ai_chat_transcript"])  # type: ignore[index]
             assert any(event["event_type"] == "test_run" for event in context["telemetry_events"])  # type: ignore[index]
             assert context["test_run_outputs"] == [test_run["output"]]
-            github = context["github"]
-            assert isinstance(github, dict)
-            assert github["pull_request_url"] == "https://github.com/example/repo/pull/11"
+            assert "github" not in context
             return [
                 AgentReviewResult(
                     agent_type=agent["type"],
@@ -1034,6 +1053,7 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
     assert len(review_summary["agent_reviews"]) == len(AGENT_DEFINITIONS)
     assert review_summary["ai_usage_analysis"]["candidate_prompt_count"] == 1
     assert review_summary["ai_usage_analysis"]["validated_suggestions"] is True
+    assert "github" not in review_summary
     assert review_runner.context is not None
 
     result_response = client.get(
@@ -1044,11 +1064,13 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
     result = result_response.json()
     assert result["candidate_email"] == "review-context@example.com"
     assert result["changed_files"] == ["app/main.py", "app/services/orders.py"]
-    assert result["github"]["pull_request_url"] == "https://github.com/example/repo/pull/11"
+    assert "github" not in result
     assert len(result["score_breakdown"]) == 7
     assert "Review input validation before hiring decision." in result["risk_flags"]
     assert "app/main.py" in {file["path"] for file in result["submitted_files"]}
     assert [message["role"] for message in result["ai_chat_transcript"]] == ["user", "assistant"]
+    assert all("ai_model" not in message for message in result["ai_chat_transcript"])
+    assert all("code_snapshot" not in message for message in result["ai_chat_transcript"])
     assert any(event["event_type"] == "test_run" for event in result["telemetry_timeline"])
     assert result["prompt_quality_summary"]["candidate_prompt_count"] == 1
     assert result["prompt_quality_summary"]["prompts_with_file_context"] == 1
@@ -1064,6 +1086,7 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
     assert dashboard[0]["weighted_score"] == 82
     assert dashboard[0]["recommendation"] == "hire"
     assert dashboard[0]["risk_flags"] == ["Review input validation before hiring decision."]
+    _assert_no_submission_transport_fields(dashboard[0])
 
     candidate_dashboard_response = client.get(
         "/api/results",

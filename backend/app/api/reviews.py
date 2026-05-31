@@ -31,7 +31,6 @@ from app.schemas.review import (
     AITranscriptMessageRead,
     AIUsageAnalysisRead,
     FileDiffRead,
-    GitHubReviewLinksRead,
     PromptQualitySummaryRead,
     ResultsDashboardItemRead,
     ScoreBreakdownItemRead,
@@ -179,15 +178,6 @@ def _review_context(submission: Submission) -> dict[str, Any]:
         "telemetry_events": _telemetry_events(session.telemetry_events),
         "test_run_outputs": test_outputs,
         "candidate_notes": submission.notes or session.notes or "",
-        "github": {
-            "branch_name": submission.branch_name,
-            "base_branch_name": submission.base_branch_name,
-            "commit_sha": submission.commit_sha,
-            "repository_url": submission.repository_url,
-            "pull_request_url": submission.pull_request_url,
-            "push_status": submission.push_status,
-            "push_error": submission.push_error,
-        },
     }
 
 
@@ -223,7 +213,6 @@ def _ai_transcript(messages: list[AIMessage]) -> list[dict[str, Any]]:
             "role": message.role.value,
             "content": message.content,
             "ai_mode": message.ai_mode,
-            "ai_model": message.ai_model,
             "metadata": message.message_metadata,
             "created_at": message.created_at,
         }
@@ -354,8 +343,6 @@ def _dashboard_item_for_session(session: InterviewSession) -> ResultsDashboardIt
         reviewed_at=session.reviewed_at,
         weighted_score=score.weighted_score if score else None,
         recommendation=score.recommendation if score else None,
-        push_status=submission.push_status if submission else None,
-        pull_request_url=submission.pull_request_url if submission else None,
         risk_flags=_risk_flags_for_reviews(reviews),
     )
 
@@ -382,15 +369,6 @@ def _summary_for_submission(submission: Submission, *, context: dict[str, Any] |
         status=submission.session.status.value,
         changed_files=[file_diff.path for file_diff in file_diffs],
         file_diffs=file_diffs,
-        github=GitHubReviewLinksRead(
-            branch_name=submission.branch_name,
-            base_branch_name=submission.base_branch_name,
-            commit_sha=submission.commit_sha,
-            repository_url=submission.repository_url,
-            pull_request_url=submission.pull_request_url,
-            push_status=submission.push_status,
-            push_error=submission.push_error,
-        ),
         agent_reviews=[AgentReviewRead.model_validate(review) for review in reviews],
         score_breakdown=[ScoreBreakdownItemRead.model_validate(item) for item in breakdown],
         weighted_score=weighted_score,

@@ -84,13 +84,6 @@ class SubmissionRead(BaseModel):
     test_output: str | None
     submitted_files: list[dict[str, Any]]
     file_diffs: list[dict[str, Any]]
-    branch_name: str | None
-    base_branch_name: str | None
-    commit_sha: str | None
-    repository_url: str | None
-    pull_request_url: str | None
-    push_status: str | None
-    push_error: str | None
     submitted_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -104,9 +97,7 @@ class AIMessageRead(BaseModel):
     candidate_id: UUID
     role: AIMessageRole
     content: str
-    code_snapshot: str | None
     ai_mode: str
-    ai_model: str | None
     message_metadata: dict[str, Any]
     created_at: datetime
 
