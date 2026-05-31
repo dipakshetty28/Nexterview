@@ -69,6 +69,24 @@ class GeneratedProjectFile(BaseModel):
         return self
 
 
+class GeneratedSolutionFile(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    content: str = Field(max_length=400000)
+    language: str = Field(min_length=1, max_length=80)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        return _clean_project_path(value)
+
+    @field_validator("language")
+    @classmethod
+    def strip_language(cls, value: str) -> str:
+        return value.strip().lower()
+
+
 class GeneratedScenarioProject(BaseModel):
     stack: list[str] = Field(min_length=1, max_length=12)
     project_name: str = Field(min_length=2, max_length=140)
@@ -116,7 +134,10 @@ class AIGeneratedScenarioDetails(BaseModel):
     title: str = Field(min_length=8, max_length=180)
     business_context: str = Field(min_length=40)
     candidate_task_summary: str = Field(min_length=20)
+    visible_requirements: list[str] = Field(default_factory=list, max_length=12)
+    constraints: list[str] = Field(default_factory=list, max_length=12)
     bug_description: str = Field(min_length=20)
+    bug_description_internal: str | None = Field(default=None, max_length=4000)
     feature_request: str = Field(min_length=20)
     expected_behavior: str = Field(min_length=20)
     validation_instructions: str = Field(min_length=20)
@@ -135,20 +156,28 @@ class AIGeneratedScenarioDetails(BaseModel):
         "validation_instructions",
         "candidate_instructions",
         "hidden_rubric",
+        "bug_description_internal",
     )
     @classmethod
-    def strip_text(cls, value: str) -> str:
-        return value.strip()
+    def strip_text(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @field_validator("visible_requirements", "constraints")
+    @classmethod
+    def strip_list_items(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
 
 
 class AIGeneratedProjectMetadata(BaseModel):
     project_name: str = Field(min_length=2, max_length=140)
     stack: str = Field(min_length=2, max_length=200)
+    language: str | None = Field(default=None, max_length=80)
     framework: str = Field(min_length=2, max_length=120)
     package_manager: str = Field(min_length=2, max_length=80)
     install_command: str = Field(min_length=2, max_length=500)
     run_command: str = Field(min_length=2, max_length=500)
     test_command: str = Field(min_length=2, max_length=500)
+    validation_command: str | None = Field(default=None, max_length=500)
     entrypoint: str = Field(min_length=1, max_length=500)
 
     model_config = ConfigDict(extra="forbid")
@@ -156,16 +185,18 @@ class AIGeneratedProjectMetadata(BaseModel):
     @field_validator(
         "project_name",
         "stack",
+        "language",
         "framework",
         "package_manager",
         "install_command",
         "run_command",
         "test_command",
+        "validation_command",
         "entrypoint",
     )
     @classmethod
-    def strip_text(cls, value: str) -> str:
-        return value.strip()
+    def strip_text(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
 
     @field_validator("entrypoint")
     @classmethod
@@ -177,6 +208,7 @@ class AIGeneratedProjectEnvelope(BaseModel):
     scenario: AIGeneratedScenarioDetails
     project: AIGeneratedProjectMetadata
     files: list[GeneratedProjectFile] = Field(min_length=5, max_length=12)
+    expected_solution_files: list[GeneratedSolutionFile] = Field(min_length=1, max_length=20)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -193,9 +225,15 @@ class AIGeneratedProjectEnvelope(BaseModel):
             raise ValueError("Generated projects must include README.md or TASK.md.")
         if not any(project_file.file_type == ProjectFileType.SOURCE for project_file in self.files):
             raise ValueError("Generated projects must include at least one source file.")
+        editable_paths = {project_file.path for project_file in self.files if project_file.is_editable}
+        solution_paths = {solution_file.path for solution_file in self.expected_solution_files}
+        if not solution_paths <= editable_paths:
+            raise ValueError("Expected solution files must correspond to editable project files.")
         candidate_materials = [
             self.scenario.validation_instructions,
             self.scenario.candidate_instructions,
+            *self.scenario.visible_requirements,
+            *self.scenario.constraints,
             *[
                 project_file.content
                 for project_file in self.files

@@ -102,15 +102,34 @@ def _upsert_sample_interview(db: Session, *, organization: Organization, intervi
         db.add(scenario)
 
     scenario.title = generated.title
+    scenario.role_title = generated.role_title
+    scenario.seniority = generated.seniority
+    scenario.interview_type = generated.interview_type
+    scenario.difficulty = generated.difficulty
+    scenario.stack = generated.stack
+    scenario.language = generated.language
+    scenario.framework = generated.framework
+    scenario.ai_mode = generated.ai_mode
     scenario.business_context = generated.business_context
     scenario.technical_requirements = generated.technical_requirements
+    scenario.visible_requirements = generated.visible_requirements
     scenario.starter_code = generated.starter_code
+    scenario.starter_files_json = [file_payload.model_dump() for file_payload in generated.starter_files_json]
+    scenario.test_files_json = [file_payload.model_dump() for file_payload in generated.test_files_json]
+    scenario.expected_solution_files_json = [
+        file_payload.model_dump() for file_payload in generated.expected_solution_files_json
+    ]
     scenario.expected_behavior = generated.expected_behavior
     scenario.logs_or_bug_report = generated.logs_or_bug_report
     scenario.bug_description = generated.bug_description
+    scenario.bug_description_internal = generated.bug_description_internal
     scenario.feature_request = generated.feature_request
     scenario.validation_instructions = generated.validation_instructions
+    scenario.validation_command = generated.validation_command
+    scenario.constraints = generated.constraints
     scenario.candidate_task_summary = generated.candidate_task_summary
+    scenario.expected_solution_summary = generated.expected_solution_summary
+    scenario.scenario_fit = generated.scenario_fit
     scenario.hidden_evaluation_points = generated.hidden_evaluation_points
     scenario.hidden_rubric = generated.hidden_rubric
     scenario.candidate_instructions = generated.candidate_instructions

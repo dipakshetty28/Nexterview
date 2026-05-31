@@ -9,8 +9,9 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.models.interview import Interview
-from app.schemas.project import AIGeneratedProjectEnvelope, GeneratedScenarioProject
-from app.schemas.scenario import GeneratedScenario
+from app.schemas.project import AIGeneratedProjectEnvelope, GeneratedProjectFile, GeneratedScenarioProject
+from app.schemas.scenario import GeneratedScenario, ScenarioFilePayload
+from app.services.scenario_seed_catalog import fallback_envelope_for_interview
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def parse_generated_project_json(raw_json: str, *, interview: Interview) -> Gene
 
 
 def build_fallback_scenario(interview: Interview) -> GeneratedScenario:
-    envelope = AIGeneratedProjectEnvelope.model_validate(_fallback_fastapi_project())
+    envelope = fallback_envelope_for_interview(interview)
     return _scenario_from_envelope(envelope=envelope, interview=interview)
 
 
@@ -88,10 +89,14 @@ def _scenario_from_envelope(*, envelope: AIGeneratedProjectEnvelope, interview: 
     hidden_rubric = _text_to_items(envelope.scenario.hidden_rubric)
     expected_behavior = _text_to_items(envelope.scenario.expected_behavior)
     validation_steps = _text_to_items(envelope.scenario.validation_instructions)
-    technical_requirements = [
+    visible_requirements = envelope.scenario.visible_requirements or [
         f"Fix the intentional bug: {envelope.scenario.bug_description}",
-        f"Implement the feature request: {envelope.scenario.feature_request}",
+        f"Implement the requested behavior: {envelope.scenario.feature_request}",
         *validation_steps[:2],
+    ]
+    technical_requirements = [
+        *visible_requirements,
+        f"Primary language/framework: {_primary_language(envelope, interview)} / {envelope.project.framework}",
     ]
     hidden_evaluation_points = hidden_rubric or [
         "Candidate identifies and fixes the actual bug in code.",
@@ -120,15 +125,35 @@ def _scenario_from_envelope(*, envelope: AIGeneratedProjectEnvelope, interview: 
     return GeneratedScenario.model_validate(
         {
             "title": envelope.scenario.title,
+            "role_title": interview.role_title,
+            "seniority": interview.seniority,
+            "interview_type": interview.interview_type,
+            "difficulty": interview.difficulty,
+            "stack": project.stack,
+            "language": _primary_language(envelope, interview),
+            "framework": envelope.project.framework,
+            "ai_mode": interview.allowed_ai_mode,
             "business_context": envelope.scenario.business_context,
             "technical_requirements": technical_requirements[:6],
+            "visible_requirements": visible_requirements[:8],
             "starter_code": entrypoint_file.content,
+            "starter_files_json": _starter_files(envelope.files),
+            "test_files_json": _test_files(envelope.files),
+            "expected_solution_files_json": [
+                ScenarioFilePayload.model_validate(solution_file.model_dump())
+                for solution_file in envelope.expected_solution_files
+            ],
             "expected_behavior": expected_behavior,
             "logs_or_bug_report": envelope.scenario.bug_description,
             "bug_description": envelope.scenario.bug_description,
+            "bug_description_internal": envelope.scenario.bug_description_internal or envelope.scenario.bug_description,
             "feature_request": envelope.scenario.feature_request,
             "validation_instructions": envelope.scenario.validation_instructions,
+            "validation_command": envelope.project.validation_command or envelope.project.test_command,
+            "constraints": envelope.scenario.constraints,
             "candidate_task_summary": envelope.scenario.candidate_task_summary,
+            "expected_solution_summary": _solution_summary(envelope),
+            "scenario_fit": _scenario_fit(interview, envelope),
             "hidden_evaluation_points": hidden_evaluation_points,
             "hidden_rubric": hidden_rubric,
             "candidate_instructions": envelope.scenario.candidate_instructions,
@@ -143,16 +168,22 @@ def _system_prompt() -> str:
         "You generate production-grade repo-based engineering interview simulations. "
         "Return only strict JSON, with no markdown fences or commentary. The JSON must match exactly this shape: "
         '{"scenario":{"title":"...","business_context":"...","candidate_task_summary":"...",'
-        '"bug_description":"...","feature_request":"...","expected_behavior":"...",'
+        '"visible_requirements":["..."],"constraints":["..."],"bug_description":"...",'
+        '"bug_description_internal":"...","feature_request":"...","expected_behavior":"...",'
         '"validation_instructions":"...","candidate_instructions":"...","hidden_rubric":"..."},'
-        '"project":{"project_name":"...","stack":"...","framework":"...","package_manager":"...",'
-        '"install_command":"...","run_command":"...","test_command":"...","entrypoint":"..."},'
+        '"project":{"project_name":"...","stack":"...","language":"...","framework":"...","package_manager":"...",'
+        '"install_command":"...","run_command":"...","test_command":"...","validation_command":"...",'
+        '"entrypoint":"..."},'
         '"files":[{"path":"package.json","language":"json","file_type":"config","is_editable":true,'
-        '"is_hidden":false,"content":"..."}]}. '
+        '"is_hidden":false,"content":"..."}],'
+        '"expected_solution_files":[{"path":"src/file.ts","language":"typescript","content":"..."}]}. '
         "Generate 5 to 12 files. Include realistic folder structure, at least one JSON seed data file, one README.md "
         "or TASK.md, and at least one test or validation file. Put the intentional bug inside actual source code. "
         "Include one feature request that requires editing at least one additional file. Hidden files may be included "
         "only for interviewer-only tests and must use file_type hidden_test, is_hidden true, and is_editable false. "
+        "The visible tests must fail against the starter files and pass against expected_solution_files. "
+        "expected_solution_files are private interviewer/platform metadata and must include the corrected contents "
+        "for each editable file that should change. "
         "The install_command, run_command, and test_command fields are internal platform runner metadata only. "
         "Do not put dependency installation, local server, or CLI test commands in candidate_instructions, "
         "validation_instructions, README.md, TASK.md, or any candidate-facing docs. Describe the candidate environment "
@@ -161,6 +192,7 @@ def _system_prompt() -> str:
 
 
 def _build_generation_prompt(interview: Interview) -> str:
+    variation = _controlled_variation(interview)
     payload = {
         "role_title": interview.role_title,
         "seniority": interview.seniority,
@@ -171,11 +203,17 @@ def _build_generation_prompt(interview: Interview) -> str:
         "allowed_ai_mode": interview.allowed_ai_mode,
         "evaluation_criteria": interview.evaluation_criteria,
         "supported_stack_selection": _stack_generation_guidance(interview.stack),
+        "controlled_variation": variation,
     }
     return (
         "Generate one small but realistic runnable interview project from this configuration. "
-        "Supported targets for this PR are React + Next.js, Python + FastAPI, and Node.js + Express. "
+        "Supported targets include React + Next.js, Python + FastAPI, TypeScript/Node, full-stack, platform, "
+        "security, and AI/RAG engineering tasks. "
         "If the selected stack does not clearly match one of those, generate a generic TypeScript/Node project. "
+        "The task must be role-aware, stack-aware, difficulty-aware, and interview-type-aware. "
+        "Avoid generic LeetCode prompts, vague build-a-function tasks, and repeated payment retry bugs. "
+        "Use the controlled variation values for domain, failure type, and task type unless the interview "
+        "configuration strongly suggests a better fit. "
         "Do not include secrets, API keys, Docker credentials, or instructions to expose backend credentials. "
         "Assume dependencies are already installed in a mini interview environment; the candidate should edit files "
         "and press Run in Nexterview to view pass/fail checks.\n\n"
@@ -199,6 +237,89 @@ def _entrypoint_file(envelope: AIGeneratedProjectEnvelope):
         if project_file.path == envelope.project.entrypoint:
             return project_file
     raise ValueError("Validated project envelope is missing its entrypoint file.")
+
+
+def _primary_language(envelope: AIGeneratedProjectEnvelope, interview: Interview) -> str:
+    if envelope.project.language:
+        return envelope.project.language
+    stack_text = " ".join(interview.stack).lower()
+    if "python" in stack_text or "fastapi" in stack_text:
+        return "python"
+    if "typescript" in stack_text or "react" in stack_text or "next" in stack_text or "node" in stack_text:
+        return "typescript"
+    if "java" in stack_text:
+        return "java"
+    if "go" in stack_text:
+        return "go"
+    return envelope.files[0].language
+
+
+def _starter_files(files: list[GeneratedProjectFile]) -> list[ScenarioFilePayload]:
+    return [
+        ScenarioFilePayload(path=file.path, language=file.language, content=file.content)
+        for file in files
+        if not file.is_hidden and file.file_type.value not in {"test", "hidden_test"}
+    ]
+
+
+def _test_files(files: list[GeneratedProjectFile]) -> list[ScenarioFilePayload]:
+    return [
+        ScenarioFilePayload(path=file.path, language=file.language, content=file.content)
+        for file in files
+        if not file.is_hidden and file.file_type.value == "test"
+    ]
+
+
+def _solution_summary(envelope: AIGeneratedProjectEnvelope) -> str:
+    changed_paths = ", ".join(solution_file.path for solution_file in envelope.expected_solution_files)
+    return f"Expected solution updates: {changed_paths}."
+
+
+def _scenario_fit(interview: Interview, envelope: AIGeneratedProjectEnvelope) -> str:
+    return (
+        f"Generated for {interview.seniority} {interview.role_title} using {', '.join(interview.stack)}. "
+        f"The project targets {envelope.project.framework} and the {interview.interview_type} interview type, "
+        f"with {interview.allowed_ai_mode} available to the candidate."
+    )
+
+
+def _controlled_variation(interview: Interview) -> dict[str, str]:
+    domains = [
+        "fintech",
+        "healthcare",
+        "logistics",
+        "hiring",
+        "ecommerce",
+        "data platform",
+        "internal tooling",
+        "developer tools",
+    ]
+    failure_types = [
+        "validation bug",
+        "async bug",
+        "auth bug",
+        "N+1 query",
+        "hydration bug",
+        "state bug",
+        "serialization bug",
+        "race condition",
+        "retrieval bug",
+        "pagination bug",
+        "caching bug",
+    ]
+    task_types = [
+        "bug fix",
+        "feature implementation",
+        "refactor",
+        "performance fix",
+        "security fix",
+    ]
+    seed = sum(ord(character) for character in f"{interview.role_title}|{interview.stack}|{interview.interview_type}")
+    return {
+        "domain": domains[seed % len(domains)],
+        "failure_type": failure_types[(seed // 3) % len(failure_types)],
+        "task_type": task_types[(seed // 7) % len(task_types)],
+    }
 
 
 def _stack_items(raw_stack: str, interview_stack: list[str]) -> list[str]:

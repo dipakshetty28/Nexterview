@@ -343,15 +343,34 @@ def generate_scenario(
         scenario = interview.scenario
 
     scenario.title = result.scenario.title
+    scenario.role_title = result.scenario.role_title
+    scenario.seniority = result.scenario.seniority
+    scenario.interview_type = result.scenario.interview_type
+    scenario.difficulty = result.scenario.difficulty
+    scenario.stack = result.scenario.stack
+    scenario.language = result.scenario.language
+    scenario.framework = result.scenario.framework
+    scenario.ai_mode = result.scenario.ai_mode
     scenario.business_context = result.scenario.business_context
     scenario.technical_requirements = result.scenario.technical_requirements
+    scenario.visible_requirements = result.scenario.visible_requirements
     scenario.starter_code = result.scenario.starter_code
+    scenario.starter_files_json = [file_payload.model_dump() for file_payload in result.scenario.starter_files_json]
+    scenario.test_files_json = [file_payload.model_dump() for file_payload in result.scenario.test_files_json]
+    scenario.expected_solution_files_json = [
+        file_payload.model_dump() for file_payload in result.scenario.expected_solution_files_json
+    ]
     scenario.expected_behavior = result.scenario.expected_behavior
     scenario.logs_or_bug_report = result.scenario.logs_or_bug_report
     scenario.bug_description = result.scenario.bug_description
+    scenario.bug_description_internal = result.scenario.bug_description_internal
     scenario.feature_request = result.scenario.feature_request
     scenario.validation_instructions = result.scenario.validation_instructions
+    scenario.validation_command = result.scenario.validation_command
+    scenario.constraints = result.scenario.constraints
     scenario.candidate_task_summary = result.scenario.candidate_task_summary
+    scenario.expected_solution_summary = result.scenario.expected_solution_summary
+    scenario.scenario_fit = result.scenario.scenario_fit
     scenario.hidden_evaluation_points = result.scenario.hidden_evaluation_points
     scenario.hidden_rubric = result.scenario.hidden_rubric
     scenario.candidate_instructions = result.scenario.candidate_instructions

@@ -29,6 +29,7 @@ from app.schemas.project import (
     CandidateWorkspaceRead,
     GeneratedProjectFile,
     GeneratedScenarioProject,
+    GeneratedSolutionFile,
     ProjectFileRead,
     ScenarioProjectRead,
     SessionFileSnapshotRead,
@@ -47,7 +48,7 @@ from app.schemas.review import (
     SubmissionReviewSummaryRead,
     TelemetryTimelineEventRead,
 )
-from app.schemas.scenario import GeneratedScenario, ScenarioRead
+from app.schemas.scenario import GeneratedScenario, ScenarioFilePayload, ScenarioRead
 
 __all__ = [
     "AgentReviewRead",
@@ -72,6 +73,7 @@ __all__ = [
     "GeneratedScenario",
     "GeneratedProjectFile",
     "GeneratedScenarioProject",
+    "GeneratedSolutionFile",
     "InterviewCreateRequest",
     "InterviewRead",
     "InterviewSubmissionResultRead",
@@ -85,6 +87,7 @@ __all__ = [
     "RegisterRequest",
     "ResultsDashboardItemRead",
     "ScenarioProjectRead",
+    "ScenarioFilePayload",
     "ScenarioRead",
     "ScoreBreakdownItemRead",
     "SessionFileSnapshotRead",
