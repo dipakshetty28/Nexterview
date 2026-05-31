@@ -154,7 +154,7 @@ def _scenario_payload() -> GeneratedScenario:
                     },
                     {
                         "path": "README.md",
-                        "content": "# Webhook score API\n\nRun pytest.\n",
+                        "content": "# Webhook score API\n\nUse the Nexterview Run button to check your changes.\n",
                         "language": "markdown",
                         "file_type": "docs",
                         "is_editable": True,
@@ -180,7 +180,9 @@ def _ai_project_payload() -> dict[str, object]:
             "expected_behavior": (
                 "Invoice totals include every line item. The export endpoint filters invoices by status when requested."
             ),
-            "validation_instructions": "Run npm test. Call GET /invoices?status=approved during manual validation.",
+            "validation_instructions": (
+                "Use the Nexterview Run button to check invoice totals and approval status filtering."
+            ),
             "candidate_instructions": (
                 "Use the tests and seed data to verify the fix. Explain the root cause and how you validated it."
             ),
@@ -254,7 +256,7 @@ def _ai_project_payload() -> dict[str, object]:
                 "file_type": "docs",
                 "is_editable": True,
                 "is_hidden": False,
-                "content": "# Invoice export service\n\nRun npm test.\n",
+                "content": "# Invoice export service\n\nUse the Nexterview Run button to check your changes.\n",
             },
         ],
     }
@@ -310,6 +312,15 @@ def test_create_interview_and_generate_scenario_with_mocked_ai_service(client: T
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
 
+    delete_response = client.delete(f"/api/interviews/{interview['id']}", headers=headers)
+    assert delete_response.status_code == 204
+
+    deleted_detail_response = client.get(f"/api/interviews/{interview['id']}", headers=headers)
+    assert deleted_detail_response.status_code == 404
+    deleted_list_response = client.get("/api/interviews", headers=headers)
+    assert deleted_list_response.status_code == 200
+    assert deleted_list_response.json() == []
+
 
 def test_scenario_generator_parses_mocked_ai_project_json(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
@@ -356,6 +367,28 @@ def test_project_json_parser_rejects_missing_data_file() -> None:
     payload["files"] = [
         project_file for project_file in payload["files"] if project_file["file_type"] != "data"  # type: ignore[index]
     ]
+    interview = Interview(
+        id=uuid4(),
+        organization_id=uuid4(),
+        created_by_id=uuid4(),
+        role_title="Backend Engineer",
+        seniority="Senior",
+        stack=["Node.js", "Express"],
+        difficulty="Intermediate",
+        interview_type="API debugging",
+        duration_minutes=75,
+        allowed_ai_mode="Pair Programmer Mode",
+        evaluation_criteria=["Correctness"],
+        status="DRAFT",
+    )
+
+    with pytest.raises(Exception):
+        parse_generated_project_json(json.dumps(payload), interview=interview)
+
+
+def test_project_json_parser_rejects_candidate_setup_commands() -> None:
+    payload = _ai_project_payload()
+    payload["scenario"]["validation_instructions"] = "Run npm test before submitting."  # type: ignore[index]
     interview = Interview(
         id=uuid4(),
         organization_id=uuid4(),
@@ -441,6 +474,8 @@ def test_scenario_generator_falls_back_without_openai_key(monkeypatch: pytest.Mo
     assert result.scenario.title == "Fix order totals and add status filtering"
     assert result.scenario.project is not None
     assert result.scenario.project.project_name == "orders-review-api"
+    assert "install" not in result.scenario.validation_instructions.lower()
+    assert "pytest" not in result.scenario.validation_instructions.lower()
     assert {project_file.path for project_file in result.scenario.project.files} >= {
         "app/main.py",
         "app/services/orders.py",
@@ -448,4 +483,7 @@ def test_scenario_generator_falls_back_without_openai_key(monkeypatch: pytest.Mo
         "tests/test_orders.py",
         "README.md",
     }
+    readme = next(project_file for project_file in result.scenario.project.files if project_file.path == "README.md")
+    assert "pip install" not in readme.content
+    assert "pytest" not in readme.content
     assert result.scenario.hidden_evaluation_points

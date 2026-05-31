@@ -1,4 +1,5 @@
 from app.models.interview import (
+    AgentReview,
     AIMessage,
     AIMessageRole,
     Interview,
@@ -8,6 +9,7 @@ from app.models.interview import (
     ProjectFile,
     Scenario,
     ScenarioProject,
+    Score,
     SessionFileSnapshot,
     Submission,
     TelemetryEvent,
@@ -18,6 +20,7 @@ from app.models.user import User, UserRole
 
 __all__ = [
     "Interview",
+    "AgentReview",
     "InterviewSession",
     "InterviewSessionStatus",
     "AIMessage",
@@ -28,6 +31,7 @@ __all__ = [
     "ProjectFile",
     "Scenario",
     "ScenarioProject",
+    "Score",
     "SessionFileSnapshot",
     "Submission",
     "TelemetryEvent",

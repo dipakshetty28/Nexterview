@@ -7,7 +7,14 @@ import { ProtectedRoute } from "@/components/auth/protected-route";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApiError, createCandidateInvite, createInterview, generateScenario, getInterviews } from "@/lib/api";
+import {
+  ApiError,
+  createCandidateInvite,
+  createInterview,
+  deleteInterview,
+  generateScenario,
+  getInterviews,
+} from "@/lib/api";
 import type { Interview, InterviewCreateInput, ProjectFile, ScenarioProject } from "@/lib/types";
 
 const DEFAULT_CRITERIA = [
@@ -89,9 +96,8 @@ function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
           </p>
         </div>
         <div className="grid gap-1 text-xs text-slate-400 md:text-right">
-          {project.install_command ? <span>Install: {project.install_command}</span> : null}
-          {project.run_command ? <span>Run: {project.run_command}</span> : null}
-          {project.test_command ? <span>Test: {project.test_command}</span> : null}
+          <span>Environment: pre-provisioned</span>
+          <span>Checks: pass/fail runner configured</span>
         </div>
       </div>
       <div className="grid gap-2">
@@ -121,6 +127,7 @@ function InterviewsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [inviteEmails, setInviteEmails] = useState<Record<string, string>>({});
   const [inviteGeneratingId, setInviteGeneratingId] = useState<string | null>(null);
   const [inviteLinks, setInviteLinks] = useState<Record<string, string>>({});
@@ -219,6 +226,38 @@ function InterviewsContent() {
       setError(message);
     } finally {
       setInviteGeneratingId(null);
+    }
+  }
+
+  async function handleDeleteInterview(interview: Interview) {
+    if (!token) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete "${interview.role_title}" and all generated scenario/session data?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setError(null);
+    setDeletingId(interview.id);
+    try {
+      await deleteInterview(token, interview.id);
+      setInterviews((current) => current.filter((item) => item.id !== interview.id));
+      setInviteLinks((current) => {
+        const next = { ...current };
+        delete next[interview.id];
+        return next;
+      });
+      setInviteEmails((current) => {
+        const next = { ...current };
+        delete next[interview.id];
+        return next;
+      });
+    } catch (requestError: unknown) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete interview.";
+      setError(message);
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -335,6 +374,12 @@ function InterviewsContent() {
         </form>
 
         <div className="grid gap-4">
+          <div className="rounded-md border border-slate-800 bg-slate-900/60 p-5">
+            <h2 className="text-lg font-semibold">Generated interviews</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Open an interview to review the scenario, generated files, invite link, and delete controls.
+            </p>
+          </div>
           {isLoading ? (
             <div className="rounded-md border border-slate-800 bg-slate-900/60 p-6 text-slate-300">Loading interviews...</div>
           ) : null}
@@ -362,13 +407,29 @@ function InterviewsContent() {
                     ))}
                   </div>
                 </div>
-                <Button
-                  disabled={generatingId === interview.id}
-                  onClick={() => void handleGenerateScenario(interview.id)}
-                  type="button"
-                >
-                  {generatingId === interview.id ? "Generating..." : interview.scenario ? "Regenerate scenario" : "Generate scenario"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    className="inline-flex h-10 items-center justify-center rounded-md border border-slate-700 px-4 text-sm font-medium text-slate-200 hover:border-cyan-500 hover:text-cyan-200"
+                    href={`/interviews/${interview.id}`}
+                  >
+                    View details
+                  </Link>
+                  <Button
+                    disabled={generatingId === interview.id}
+                    onClick={() => void handleGenerateScenario(interview.id)}
+                    type="button"
+                  >
+                    {generatingId === interview.id ? "Generating..." : interview.scenario ? "Regenerate scenario" : "Generate scenario"}
+                  </Button>
+                  <Button
+                    disabled={deletingId === interview.id}
+                    onClick={() => void handleDeleteInterview(interview)}
+                    type="button"
+                    variant="secondary"
+                  >
+                    {deletingId === interview.id ? "Deleting..." : "Delete"}
+                  </Button>
+                </div>
               </div>
 
               <div className="mt-5 grid gap-3 border-t border-slate-800 pt-5">

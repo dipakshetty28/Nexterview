@@ -1,24 +1,30 @@
 import type {
   AuthResponse,
   AICopilotResponse,
+  CandidateWorkspace,
   CandidateSession,
   DashboardResponse,
   Interview,
   InterviewCreateInput,
+  InterviewSubmissionResult,
   InviteTokenResponse,
   PublicInvite,
+  ResultsDashboardItem,
   Scenario,
+  SessionResult,
   Submission,
+  SubmissionReviewSummary,
   TelemetryEvent,
   TelemetryEventType,
   TestRunResult,
   User,
+  WorkspaceFile,
 } from "@/lib/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 type ApiRequestOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   token?: string;
 };
@@ -110,6 +116,36 @@ export function createInterview(token: string, input: InterviewCreateInput): Pro
   });
 }
 
+export function getInterview(token: string, interviewId: string): Promise<Interview> {
+  return apiRequest<Interview>(`/api/interviews/${interviewId}`, { token });
+}
+
+export function getInterviewSubmissions(token: string, interviewId: string): Promise<InterviewSubmissionResult[]> {
+  return apiRequest<InterviewSubmissionResult[]>(`/api/interviews/${interviewId}/submissions`, { token });
+}
+
+export function getSessionResult(token: string, sessionId: string): Promise<SessionResult> {
+  return apiRequest<SessionResult>(`/api/results/${sessionId}`, { token });
+}
+
+export function getResultsDashboard(token: string): Promise<ResultsDashboardItem[]> {
+  return apiRequest<ResultsDashboardItem[]>("/api/results", { token });
+}
+
+export function runSubmissionReview(token: string, submissionId: string): Promise<SubmissionReviewSummary> {
+  return apiRequest<SubmissionReviewSummary>(`/api/submissions/${submissionId}/review`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function deleteInterview(token: string, interviewId: string): Promise<void> {
+  return apiRequest<void>(`/api/interviews/${interviewId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 export function generateScenario(token: string, interviewId: string): Promise<Scenario> {
   return apiRequest<Scenario>(`/api/interviews/${interviewId}/generate-scenario`, {
     method: "POST",
@@ -144,10 +180,34 @@ export function getCandidateSession(token: string, sessionId: string): Promise<C
   return apiRequest<CandidateSession>(`/api/sessions/${sessionId}`, { token });
 }
 
+export function getCandidateWorkspace(token: string, sessionId: string): Promise<CandidateWorkspace> {
+  return apiRequest<CandidateWorkspace>(`/api/sessions/${sessionId}/workspace`, { token });
+}
+
+export function updateWorkspaceFile(
+  token: string,
+  sessionId: string,
+  fileId: string,
+  input: { content: string },
+): Promise<WorkspaceFile> {
+  return apiRequest<WorkspaceFile>(`/api/sessions/${sessionId}/files/${fileId}`, {
+    method: "PUT",
+    token,
+    body: input,
+  });
+}
+
 export function askCandidateCopilot(
   token: string,
   sessionId: string,
-  input: { question: string; code: string },
+  input: {
+    question: string;
+    code?: string;
+    current_file_path?: string | null;
+    current_file_content?: string | null;
+    latest_test_output?: string | null;
+    notes?: string | null;
+  },
 ): Promise<AICopilotResponse> {
   return apiRequest<AICopilotResponse>(`/api/sessions/${sessionId}/ai`, {
     method: "POST",
@@ -168,7 +228,7 @@ export function saveSessionEvent(
   });
 }
 
-export function runSessionTests(token: string, sessionId: string, input: { code: string }): Promise<TestRunResult> {
+export function runSessionTests(token: string, sessionId: string, input: { code?: string } = {}): Promise<TestRunResult> {
   return apiRequest<TestRunResult>(`/api/sessions/${sessionId}/run-tests`, {
     method: "POST",
     token,
@@ -179,7 +239,12 @@ export function runSessionTests(token: string, sessionId: string, input: { code:
 export function submitSessionSolution(
   token: string,
   sessionId: string,
-  input: { code: string; notes: string; test_output?: string | null },
+  input: {
+    code?: string;
+    notes: string;
+    test_output?: string | null;
+    submitted_files?: Array<{ path: string; content: string; language: string; file_type?: string | null }>;
+  },
 ): Promise<Submission> {
   return apiRequest<Submission>(`/api/sessions/${sessionId}/submit`, {
     method: "POST",

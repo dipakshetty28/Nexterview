@@ -152,7 +152,11 @@ def _system_prompt() -> str:
         "Generate 5 to 12 files. Include realistic folder structure, at least one JSON seed data file, one README.md "
         "or TASK.md, and at least one test or validation file. Put the intentional bug inside actual source code. "
         "Include one feature request that requires editing at least one additional file. Hidden files may be included "
-        "only for interviewer-only tests and must use file_type hidden_test, is_hidden true, and is_editable false."
+        "only for interviewer-only tests and must use file_type hidden_test, is_hidden true, and is_editable false. "
+        "The install_command, run_command, and test_command fields are internal platform runner metadata only. "
+        "Do not put dependency installation, local server, or CLI test commands in candidate_instructions, "
+        "validation_instructions, README.md, TASK.md, or any candidate-facing docs. Describe the candidate environment "
+        "as already provisioned and tell candidates to use the platform Run button to see pass/fail checks."
     )
 
 
@@ -172,7 +176,9 @@ def _build_generation_prompt(interview: Interview) -> str:
         "Generate one small but realistic runnable interview project from this configuration. "
         "Supported targets for this PR are React + Next.js, Python + FastAPI, and Node.js + Express. "
         "If the selected stack does not clearly match one of those, generate a generic TypeScript/Node project. "
-        "Do not include secrets, API keys, Docker credentials, or instructions to expose backend credentials.\n\n"
+        "Do not include secrets, API keys, Docker credentials, or instructions to expose backend credentials. "
+        "Assume dependencies are already installed in a mini interview environment; the candidate should edit files "
+        "and press Run in Nexterview to view pass/fail checks.\n\n"
         f"Configuration JSON:\n{json.dumps(payload, indent=2)}"
     )
 
@@ -238,8 +244,8 @@ def _fallback_fastapi_project() -> dict[str, object]:
                 "Unknown statuses return an empty list without failing the request."
             ),
             "validation_instructions": (
-                "Run pytest to verify total calculation and status filtering. "
-                "Manually call GET /orders and GET /orders?status=paid if running the API."
+                "Use the Run button in the workspace to execute the pre-provisioned checks against the current files "
+                "and seed data. Confirm the order total calculation and status filtering checks pass before submitting."
             ),
             "candidate_instructions": (
                 "You may use the AI copilot, but validate its suggestions against the tests. Keep the change scoped, "
@@ -393,15 +399,9 @@ def _fallback_fastapi_project() -> dict[str, object]:
                     "# Orders Review API\n\n"
                     "## Task\n\n"
                     "Fix the incorrect order total calculation and add an optional status filter to `GET /orders`.\n\n"
-                    "## Run\n\n"
-                    "```bash\n"
-                    "pip install -r requirements.txt\n"
-                    "uvicorn app.main:app --reload\n"
-                    "```\n\n"
-                    "## Validate\n\n"
-                    "```bash\n"
-                    "pytest\n"
-                    "```\n\n"
+                    "## Workspace checks\n\n"
+                    "The interview environment is already provisioned. Use the Nexterview Run button to execute "
+                    "the visible checks against the current files and seed data.\n\n"
                     "The intentional bug is in `app/services/orders.py`: quantity is ignored when calculating totals.\n"
                 ),
             },

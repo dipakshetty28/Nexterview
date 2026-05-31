@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import re
 from datetime import datetime
 from pathlib import PurePosixPath
 from uuid import UUID
@@ -16,6 +17,17 @@ class ProjectFileType(str, enum.Enum):
     DOCS = "docs"
     HIDDEN_TEST = "hidden_test"
     METADATA = "metadata"
+
+
+_CANDIDATE_CLI_COMMAND_RE = re.compile(
+    r"\b("
+    r"python\s+-m\s+pip\s+install|pip\s+install|uv\s+pip\s+install|poetry\s+install|"
+    r"npm\s+install|pnpm\s+install|yarn\s+install|bun\s+install|"
+    r"npm\s+run\s+(dev|start|test)|npm\s+test|pnpm\s+test|yarn\s+test|bun\s+test|"
+    r"pytest|vitest|uvicorn"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def _clean_project_path(value: str) -> str:
@@ -181,6 +193,20 @@ class AIGeneratedProjectEnvelope(BaseModel):
             raise ValueError("Generated projects must include README.md or TASK.md.")
         if not any(project_file.file_type == ProjectFileType.SOURCE for project_file in self.files):
             raise ValueError("Generated projects must include at least one source file.")
+        candidate_materials = [
+            self.scenario.validation_instructions,
+            self.scenario.candidate_instructions,
+            *[
+                project_file.content
+                for project_file in self.files
+                if not project_file.is_hidden and project_file.file_type == ProjectFileType.DOCS
+            ],
+        ]
+        if any(_CANDIDATE_CLI_COMMAND_RE.search(material) for material in candidate_materials):
+            raise ValueError(
+                "Candidate-facing task materials must describe the pre-provisioned workspace and platform Run button, "
+                "not local install, server, or test CLI commands."
+            )
         return self
 
 
@@ -211,6 +237,11 @@ class ScenarioProjectRead(BaseModel):
     entrypoint: str | None
     package_manager: str | None
     framework: str | None
+    starter_branch_name: str | None
+    starter_commit_sha: str | None
+    starter_repository_url: str | None
+    starter_push_status: str | None
+    starter_push_error: str | None
     files: list[ProjectFileRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -254,6 +285,44 @@ class SessionFileSnapshotRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateWorkspaceFileRead(BaseModel):
+    id: UUID
+    project_file_id: UUID
+    path: str
+    original_content: str
+    current_content: str
+    language: str
+    file_type: str
+    is_editable: bool
+    updated_at: datetime
+
+
+class CandidateWorkspaceProjectRead(BaseModel):
+    id: UUID
+    project_name: str
+    stack: list[str]
+    description: str
+    framework: str | None
+    package_manager: str | None
+    install_command: str | None
+    run_command: str | None
+    test_command: str | None
+    entrypoint: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateWorkspaceRead(BaseModel):
+    session_id: UUID
+    project: CandidateWorkspaceProjectRead | None
+    files: list[CandidateWorkspaceFileRead] = Field(default_factory=list)
+    last_autosaved_at: datetime | None
+
+
+class CandidateWorkspaceFileUpdate(BaseModel):
+    content: str = Field(max_length=400000)
 
 
 class SubmittedFileRead(BaseModel):
