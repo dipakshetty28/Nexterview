@@ -28,8 +28,9 @@ from app.schemas.interview import InterviewCreateRequest, InterviewRead, Intervi
 from app.schemas.scenario import ScenarioRead
 from app.services.github import GitHubSubmissionFile, GitHubSubmissionPublisher
 from app.services.invites import generate_invite_token, hash_invite_token
-from app.services.scenario_projects import upsert_scenario_project
 from app.services.scenario_generator import ScenarioGenerationResult, ScenarioGenerator
+from app.services.scenario_projects import upsert_scenario_project
+from app.services.scenario_seed_catalog import ScenarioTemplateUnavailableError
 
 router = APIRouter(prefix="/api/interviews", tags=["interviews"])
 
@@ -334,7 +335,10 @@ def generate_scenario(
     github_publisher: Annotated[GitHubSubmissionPublisher, Depends(get_github_project_publisher)],
 ) -> ScenarioRead:
     interview = _get_interview_for_user(db, interview_id, current_user)
-    result: ScenarioGenerationResult = generator.generate(interview)
+    try:
+        result: ScenarioGenerationResult = generator.generate(interview)
+    except ScenarioTemplateUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     if interview.scenario is None:
         scenario = Scenario(interview_id=interview.id)

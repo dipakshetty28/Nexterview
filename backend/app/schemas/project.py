@@ -174,6 +174,7 @@ class AIGeneratedProjectMetadata(BaseModel):
     language: str | None = Field(default=None, max_length=80)
     framework: str = Field(min_length=2, max_length=120)
     package_manager: str = Field(min_length=2, max_length=80)
+    test_framework: str | None = Field(default=None, max_length=120)
     install_command: str = Field(min_length=2, max_length=500)
     run_command: str = Field(min_length=2, max_length=500)
     test_command: str = Field(min_length=2, max_length=500)
@@ -188,6 +189,7 @@ class AIGeneratedProjectMetadata(BaseModel):
         "language",
         "framework",
         "package_manager",
+        "test_framework",
         "install_command",
         "run_command",
         "test_command",
