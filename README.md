@@ -5,7 +5,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 ## Current Scope
 
 - FastAPI backend with SQLAlchemy 2, Alembic, Pydantic v2, and PostgreSQL
-- Next.js 15, React 19, TypeScript, Tailwind CSS, Recharts, and App Router frontend
+- Next.js 15, React 19, TypeScript, Tailwind CSS, Recharts, react-resizable-panels, and App Router frontend
 - Docker Compose for PostgreSQL, Redis, backend, and frontend
 - Health endpoint at `GET /api/health`
 - Auth endpoints:
@@ -43,7 +43,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - OpenAI Responses API integration on the backend with strict Pydantic JSON validation for generated repo projects
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, interviewer management route, interviewer results dashboard with Recharts score/status visualizations, invite page, repo submission result page, and Monaco-powered candidate workspace with a nested file tree, pre-provisioned environment messaging, snapshot autosave, markdown AI copilot, notes, pass/fail run output, and final submit
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, interviewer results dashboard with Recharts score/status visualizations, invite page, repo submission result page, and a resizable Monaco-powered candidate IDE workspace with task, editor, AI copilot, file tree, output, required final explanation, snapshot autosave, pass/fail run output, and final submit confirmation
 - Optional GitHub publishing that creates a starter branch from the configured default branch when a scenario is generated, then creates a candidate-specific submission branch and pull request against that starter branch so reviewers see only candidate changes
 - Structured AI copilot responses with markdown answers, suggested file chips, confidence, risk flags, and telemetry for later prompting-skill analytics
 - Repo-aware multi-agent review that evaluates original project files, submitted files, generated diffs, AI transcript, telemetry, test outputs, candidate notes, and GitHub branch/PR links while allowing internal-only rubric context
