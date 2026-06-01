@@ -67,8 +67,12 @@ function DashboardContent() {
 
   const metrics = useMemo(() => {
     const activeInterviews = interviews.filter((interview) => interview.status !== "ARCHIVED").length;
-    const completedSessions = sessions.filter((session) => session.status === "submitted" || session.status === "reviewed").length;
-    const pendingReviews = sessions.filter((session) => session.status === "submitted" && session.weighted_score === null).length;
+    const completedSessions = sessions.filter((session) =>
+      ["submitted", "ready_for_review", "review_in_progress", "reviewed", "review_failed"].includes(session.status),
+    ).length;
+    const pendingReviews = sessions.filter(
+      (session) => ["submitted", "ready_for_review", "review_in_progress"].includes(session.status) && session.weighted_score === null,
+    ).length;
     return {
       activeInterviews,
       completedSessions,

@@ -42,6 +42,7 @@ from app.schemas.review import (
 )
 from app.services.review_agents import (
     RepoSubmissionReviewer,
+    ReviewAgentError,
     build_score_breakdown,
     recommendation_for_score,
     summarize_ai_usage,
@@ -157,22 +158,38 @@ def _review_context(submission: Submission) -> dict[str, Any]:
         "session_id": str(submission.session_id),
         "scenario": {
             "title": scenario.title,
+            "role_title": scenario.role_title or session.interview.role_title,
+            "stack": scenario.stack or session.interview.stack,
+            "difficulty": scenario.difficulty or session.interview.difficulty,
+            "interview_type": scenario.interview_type or session.interview.interview_type,
+            "allowed_ai_mode": session.interview.allowed_ai_mode,
             "business_context": scenario.business_context,
             "technical_requirements": scenario.technical_requirements,
+            "visible_requirements": scenario.visible_requirements,
+            "constraints": scenario.constraints,
             "expected_behavior": scenario.expected_behavior,
+            "expected_solution_summary": scenario.expected_solution_summary,
+            "expected_solution_files": scenario.expected_solution_files_json,
             "logs_or_bug_report": scenario.logs_or_bug_report,
             "candidate_instructions": scenario.candidate_instructions,
             "bug_description": scenario.bug_description,
+            "bug_description_internal": scenario.bug_description_internal,
             "feature_request": scenario.feature_request,
             "validation_instructions": scenario.validation_instructions,
+            "validation_command": scenario.validation_command,
             "hidden_evaluation_points": scenario.hidden_evaluation_points,
             "hidden_rubric": scenario.hidden_rubric,
             "interviewer_rubric": scenario.interviewer_rubric,
         },
+        "role": session.interview.role_title,
+        "stack": session.interview.stack,
+        "difficulty": session.interview.difficulty,
+        "interview_type": session.interview.interview_type,
         "candidate_instructions": scenario.candidate_instructions,
         "bug_description": scenario.bug_description,
         "feature_request": scenario.feature_request,
         "validation_instructions": scenario.validation_instructions,
+        "expected_solution_summary": scenario.expected_solution_summary,
         "original_project_files": _original_project_files(scenario),
         "candidate_submitted_files": submission.submitted_files,
         "file_diffs": submission.file_diffs,
@@ -186,6 +203,8 @@ def _review_context(submission: Submission) -> dict[str, Any]:
                 "failed_count": test_run.failed_count,
                 "total_count": test_run.total_count,
                 "failure_summary": test_run.failure_summary,
+                "stdout": test_run.stdout,
+                "stderr": test_run.stderr,
                 "created_at": test_run.created_at,
             }
             for test_run in sorted(session.test_runs, key=lambda item: item.created_at)
@@ -275,6 +294,58 @@ def _risk_flags_for_reviews(reviews: list[AgentReview]) -> list[str]:
                 flags.append(cleaned)
                 seen.add(cleaned.lower())
     return flags
+
+
+def _agent_review_read(review: AgentReview) -> AgentReviewRead:
+    raw_response = review.raw_response if isinstance(review.raw_response, dict) else {}
+    return AgentReviewRead(
+        id=review.id,
+        submission_id=review.submission_id,
+        session_id=review.session_id,
+        agent_type=review.agent_type,
+        agent_label=review.agent_label,
+        score=review.score,
+        strengths=review.strengths,
+        weaknesses=review.weaknesses,
+        evidence=review.evidence,
+        risk_flags=review.risk_flags,
+        recommendation=review.recommendation,
+        explanation=review.explanation,
+        raw_response=raw_response,
+        expected=_string_list_from_raw(raw_response.get("expected")),
+        observed=_string_list_from_raw(raw_response.get("observed")),
+        follow_up_questions=_string_list_from_raw(raw_response.get("follow_up_questions")),
+        confidence=_float_from_raw(raw_response.get("confidence")),
+        review_source=str(raw_response.get("review_source")) if raw_response.get("review_source") else None,
+        created_at=review.created_at,
+        updated_at=review.updated_at,
+    )
+
+
+def _review_source_for_reviews(reviews: list[AgentReview]) -> str | None:
+    sources = {
+        str(review.raw_response.get("review_source"))
+        for review in reviews
+        if isinstance(review.raw_response, dict) and review.raw_response.get("review_source")
+    }
+    if not sources:
+        return None
+    if len(sources) == 1:
+        return next(iter(sources))
+    return "mixed"
+
+
+def _string_list_from_raw(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()][:12]
+
+
+def _float_from_raw(value: Any) -> float | None:
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
 
 
 def _prompt_quality_summary(context: dict[str, Any]) -> dict[str, Any]:
@@ -393,7 +464,7 @@ def _summary_for_submission(submission: Submission, *, context: dict[str, Any] |
         status=submission.session.status.value,
         changed_files=[file_diff.path for file_diff in file_diffs],
         file_diffs=file_diffs,
-        agent_reviews=[AgentReviewRead.model_validate(review) for review in reviews],
+        agent_reviews=[_agent_review_read(review) for review in reviews],
         score_breakdown=[ScoreBreakdownItemRead.model_validate(item) for item in breakdown],
         weighted_score=weighted_score,
         recommendation=recommendation,
@@ -401,7 +472,51 @@ def _summary_for_submission(submission: Submission, *, context: dict[str, Any] |
         test_output=submission.test_output,
         test_runs=test_runs,
         notes=submission.notes,
+        review_source=_review_source_for_reviews(reviews),
     )
+
+
+def _candidate_observed(submission: Submission, *, context: dict[str, Any]) -> list[str]:
+    test_runs = context.get("test_runs") if isinstance(context.get("test_runs"), list) else []
+    final_test_status = None
+    if test_runs and isinstance(test_runs[-1], dict):
+        final_test_status = test_runs[-1].get("status")
+    observed = [
+        f"Changed files: {', '.join(diff.get('path') for diff in submission.file_diffs if isinstance(diff.get('path'), str)) or 'none detected'}.",
+        f"Final test status: {final_test_status or 'not available'}.",
+        f"Final explanation length: {len(submission.notes.strip())} characters.",
+    ]
+    ai_usage = summarize_ai_usage(context)
+    observed.append(f"AI prompts sent: {ai_usage['candidate_prompt_count']}.")
+    return observed
+
+
+def _candidate_missed(reviews: list[AgentReview]) -> list[str]:
+    missed: list[str] = []
+    for review in sorted(reviews, key=lambda item: item.agent_type):
+        if review.agent_type in {"correctness", "debugging_process", "hiring_recommendation"}:
+            missed.extend(item for item in review.weaknesses if isinstance(item, str))
+    return _dedupe_review_items(missed)[:12]
+
+
+def _suggested_follow_up_questions(reviews: list[AgentReview]) -> list[str]:
+    questions: list[str] = []
+    for review in sorted(reviews, key=lambda item: item.agent_type):
+        raw_response = review.raw_response if isinstance(review.raw_response, dict) else {}
+        questions.extend(_string_list_from_raw(raw_response.get("follow_up_questions")))
+    return _dedupe_review_items(questions)[:12]
+
+
+def _dedupe_review_items(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in items:
+        cleaned = item.strip()
+        key = cleaned.lower()
+        if cleaned and key not in seen:
+            deduped.append(cleaned)
+            seen.add(key)
+    return deduped
 
 
 def _session_result_for_submission(submission: Submission) -> SessionResultRead:
@@ -421,6 +536,13 @@ def _session_result_for_submission(submission: Submission) -> SessionResultRead:
         bug_description=scenario.bug_description,
         feature_request=scenario.feature_request,
         validation_instructions=scenario.validation_instructions,
+        expected_behavior=scenario.expected_behavior,
+        expected_solution_summary=scenario.expected_solution_summary,
+        hidden_evaluation_points=scenario.hidden_evaluation_points,
+        interviewer_rubric=scenario.interviewer_rubric,
+        candidate_observed=_candidate_observed(submission, context=review_context),
+        candidate_missed=_candidate_missed(submission.agent_reviews),
+        suggested_follow_up_questions=_suggested_follow_up_questions(submission.agent_reviews),
         submitted_files=_submitted_code_files(submission),
         ai_chat_transcript=[
             AITranscriptMessageRead.model_validate(message) for message in _ai_transcript(session.ai_messages)
@@ -450,6 +572,45 @@ def _recommendation_for_reviews(reviews: list[AgentReview], weighted_score: floa
     return hiring_review.recommendation if hiring_review else recommendation_for_score(weighted_score)
 
 
+def _apply_review_recommendation_caps(
+    recommendation: str,
+    *,
+    reviews: list[AgentReview],
+    context: dict[str, Any],
+) -> str:
+    capped = recommendation.strip().lower().replace(" ", "_").replace("-", "_")
+    final_tests_failed = _context_final_tests_failed(context)
+    serious_correctness_failure = any(review.agent_type == "correctness" and review.score < 50 for review in reviews)
+    serious_security_risk = any(
+        review.agent_type == "security" and any("serious security risk" in str(flag).lower() for flag in review.risk_flags)
+        for review in reviews
+    )
+    if final_tests_failed or serious_correctness_failure or serious_security_risk:
+        return _cap_recommendation(capped, "lean_no_hire")
+    return capped
+
+
+def _context_final_tests_failed(context: dict[str, Any]) -> bool:
+    test_runs = context.get("test_runs")
+    if isinstance(test_runs, list) and test_runs:
+        final_run = test_runs[-1]
+        if isinstance(final_run, dict) and str(final_run.get("status") or "").lower() in {"failed", "error", "timeout"}:
+            return True
+    outputs = context.get("test_run_outputs")
+    if isinstance(outputs, list):
+        joined = "\n".join(str(item) for item in outputs).lower()
+        return any(term in joined for term in ("failed", "error", "timeout", "traceback"))
+    return False
+
+
+def _cap_recommendation(recommendation: str, cap: str) -> str:
+    order = ["no_hire", "lean_no_hire", "lean_hire", "hire", "strong_hire"]
+    try:
+        return order[min(order.index(recommendation), order.index(cap))]
+    except ValueError:
+        return cap
+
+
 def _upsert_score(
     db: Session,
     *,
@@ -463,7 +624,8 @@ def _upsert_score(
     weighted_score = weighted_score_from_breakdown(breakdown)
     if weighted_score is None:
         return None
-    recommendation = _recommendation_for_reviews(reviews, weighted_score) or "review complete"
+    recommendation = _recommendation_for_reviews(reviews, weighted_score) or "no_hire"
+    recommendation = _apply_review_recommendation_caps(recommendation, reviews=reviews, context=context)
     ai_usage_analysis = summarize_ai_usage(context)
     score = submission.score
     if score is None:
@@ -497,8 +659,19 @@ def _persist_submission_review(
     review_context = context or _review_context(submission)
     reviews = sorted(submission.agent_reviews, key=lambda review: review.agent_type)
     if not reviews:
+        submission.session.status = InterviewSessionStatus.REVIEW_IN_PROGRESS
+        submission.status = "review_in_progress"
+        db.flush()
         reviews = []
         for result in reviewer.review(review_context):
+            raw_response = {
+                **result.raw_response,
+                "expected": result.expected or result.raw_response.get("expected", []),
+                "observed": result.observed or result.raw_response.get("observed", []),
+                "follow_up_questions": result.follow_up_questions or result.raw_response.get("follow_up_questions", []),
+                "confidence": result.confidence,
+                "review_source": result.review_source or result.raw_response.get("review_source"),
+            }
             review = AgentReview(
                 organization_id=submission.organization_id,
                 submission_id=submission.id,
@@ -512,7 +685,7 @@ def _persist_submission_review(
                 risk_flags=result.risk_flags,
                 recommendation=result.recommendation,
                 explanation=result.explanation,
-                raw_response=result.raw_response,
+                raw_response=raw_response,
             )
             reviews.append(review)
             db.add(review)
@@ -520,7 +693,18 @@ def _persist_submission_review(
 
     _upsert_score(db, submission=submission, reviews=reviews, context=review_context)
     submission.session.status = InterviewSessionStatus.REVIEWED
+    submission.status = "reviewed"
     submission.session.reviewed_at = submission.session.reviewed_at or _now_utc()
+
+
+def _mark_review_failed(db: Session, submission: Submission) -> None:
+    submission.session.status = InterviewSessionStatus.REVIEW_FAILED
+    submission.status = "review_failed"
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Unable to persist review_failed status for submission %s.", submission.id)
 
 
 def run_submission_review_background(
@@ -532,6 +716,7 @@ def run_submission_review_background(
         db = SessionLocal()
     else:
         db = sessionmaker(autocommit=False, autoflush=False, bind=bind)()
+    submission: Submission | None = None
     try:
         submission = db.execute(
             select(Submission).options(*_submission_options()).where(Submission.id == submission_id)
@@ -547,6 +732,8 @@ def run_submission_review_background(
         db.commit()
     except Exception:
         db.rollback()
+        if submission is not None:
+            _mark_review_failed(db, submission)
         logger.exception("Background submission review failed for submission %s.", submission_id)
     finally:
         db.close()
@@ -565,7 +752,22 @@ def review_submission(
 ) -> SubmissionReviewSummaryRead:
     submission = _get_submission_for_reviewer(db, submission_id=submission_id, current_user=current_user)
     context = _review_context(submission)
-    _persist_submission_review(db, submission=submission, reviewer=reviewer, context=context)
+    try:
+        _persist_submission_review(db, submission=submission, reviewer=reviewer, context=context)
+    except ReviewAgentError as exc:
+        db.rollback()
+        _mark_review_failed(db, submission)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Review agents are temporarily unavailable. The submission was not scored.",
+        ) from exc
+    except Exception as exc:
+        db.rollback()
+        _mark_review_failed(db, submission)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to complete submission review. The submission was not scored.",
+        ) from exc
     try:
         db.commit()
     except SQLAlchemyError as exc:

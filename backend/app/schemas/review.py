@@ -31,6 +31,11 @@ class AgentReviewRead(BaseModel):
     recommendation: str
     explanation: str
     raw_response: dict[str, Any]
+    expected: list[str] = Field(default_factory=list)
+    observed: list[str] = Field(default_factory=list)
+    follow_up_questions: list[str] = Field(default_factory=list)
+    confidence: float | None = None
+    review_source: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -140,6 +145,7 @@ class SubmissionReviewSummaryRead(BaseModel):
     test_output: str | None
     test_runs: list[TestRunSummaryRead] = Field(default_factory=list)
     notes: str
+    review_source: str | None = None
 
 
 class SessionResultRead(SubmissionReviewSummaryRead):
@@ -151,6 +157,13 @@ class SessionResultRead(SubmissionReviewSummaryRead):
     bug_description: str
     feature_request: str
     validation_instructions: str
+    expected_behavior: list[str] = Field(default_factory=list)
+    expected_solution_summary: str
+    hidden_evaluation_points: list[str] = Field(default_factory=list)
+    interviewer_rubric: list[str] = Field(default_factory=list)
+    candidate_observed: list[str] = Field(default_factory=list)
+    candidate_missed: list[str] = Field(default_factory=list)
+    suggested_follow_up_questions: list[str] = Field(default_factory=list)
     submitted_files: list[SubmittedCodeFileRead] = Field(default_factory=list)
     ai_chat_transcript: list[AITranscriptMessageRead] = Field(default_factory=list)
     telemetry_timeline: list[TelemetryTimelineEventRead] = Field(default_factory=list)

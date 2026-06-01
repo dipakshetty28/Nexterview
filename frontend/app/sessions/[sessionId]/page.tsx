@@ -968,7 +968,10 @@ function CandidateSessionContent() {
   const selectedEditorValue = selectedFile
     ? fileContents[selectedFile.id] ?? selectedFile.current_content
     : legacyCode;
-  const isSubmitted = session?.status === "submitted" || session?.status === "reviewed";
+  const isSubmitted = Boolean(
+    session?.status &&
+      ["submitted", "ready_for_review", "review_in_progress", "reviewed", "review_failed"].includes(session.status),
+  );
   const finalExplanation = notes.trim();
   const canSubmit =
     Boolean(session) &&

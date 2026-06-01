@@ -138,7 +138,9 @@ function InterviewDetailContent() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const canManageInterviews = user?.role === "ADMIN" || user?.role === "INTERVIEWER";
-  const submittedCount = submissions.filter((submission) => submission.status === "submitted" || submission.status === "reviewed").length;
+  const submittedCount = submissions.filter((submission) =>
+    ["submitted", "ready_for_review", "review_in_progress", "reviewed", "review_failed"].includes(submission.status),
+  ).length;
   const reviewedCount = submissions.filter((submission) => submission.status === "reviewed").length;
 
   useEffect(() => {
