@@ -182,7 +182,7 @@ export type InterviewSubmissionResult = {
   candidate_id: string;
   candidate_email: string;
   candidate_name: string;
-  status: "invited" | "started" | "submitted" | "reviewed";
+  status: "invited" | "started" | "submitted" | "ready_for_review" | "review_in_progress" | "reviewed" | "review_failed";
   submitted_at: string | null;
   submission_id: string | null;
   test_output: string | null;
@@ -213,6 +213,11 @@ export type AgentReview = {
   recommendation: string;
   explanation: string;
   raw_response: Record<string, unknown>;
+  expected: string[];
+  observed: string[];
+  follow_up_questions: string[];
+  confidence: number | null;
+  review_source: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -278,7 +283,7 @@ export type ResultsDashboardItem = {
   candidate_name: string;
   role_title: string;
   scenario_title: string | null;
-  status: "invited" | "started" | "submitted" | "reviewed";
+  status: "invited" | "started" | "submitted" | "ready_for_review" | "review_in_progress" | "reviewed" | "review_failed";
   submitted_at: string | null;
   reviewed_at: string | null;
   weighted_score: number | null;
@@ -307,7 +312,7 @@ export type SubmissionReviewSummary = {
   session_id: string;
   candidate_id: string;
   submitted_at: string;
-  status: "invited" | "started" | "submitted" | "reviewed";
+  status: "invited" | "started" | "submitted" | "ready_for_review" | "review_in_progress" | "reviewed" | "review_failed";
   changed_files: string[];
   file_diffs: FileDiff[];
   agent_reviews: AgentReview[];
@@ -318,6 +323,7 @@ export type SubmissionReviewSummary = {
   test_output: string | null;
   test_runs: TestRunSummary[];
   notes: string;
+  review_source: string | null;
 };
 
 export type SessionResult = SubmissionReviewSummary & {
@@ -329,6 +335,13 @@ export type SessionResult = SubmissionReviewSummary & {
   bug_description: string;
   feature_request: string;
   validation_instructions: string;
+  expected_behavior: string[];
+  expected_solution_summary: string;
+  hidden_evaluation_points: string[];
+  interviewer_rubric: string[];
+  candidate_observed: string[];
+  candidate_missed: string[];
+  suggested_follow_up_questions: string[];
   submitted_files: SubmittedCodeFile[];
   ai_chat_transcript: AITranscriptMessage[];
   telemetry_timeline: TelemetryTimelineEvent[];
@@ -371,14 +384,14 @@ export type PublicInvite = {
   };
   candidate_email: string;
   expires_at: string;
-  status: "invited" | "started" | "submitted" | "reviewed";
+  status: "invited" | "started" | "submitted" | "ready_for_review" | "review_in_progress" | "reviewed" | "review_failed";
 };
 
 export type CandidateSession = {
   id: string;
   interview_id: string;
   candidate_id: string;
-  status: "invited" | "started" | "submitted" | "reviewed";
+  status: "invited" | "started" | "submitted" | "ready_for_review" | "review_in_progress" | "reviewed" | "review_failed";
   started_at: string | null;
   submitted_at: string | null;
   reviewed_at: string | null;
@@ -506,7 +519,7 @@ export type Submission = {
   code: string;
   notes: string;
   test_output: string | null;
-  status: "submitted" | "tests_failed" | "ready_for_review";
+  status: "submitted" | "tests_failed" | "ready_for_review" | "review_in_progress" | "reviewed" | "review_failed";
   submitted_files: Array<Record<string, unknown>>;
   file_diffs: Array<Record<string, unknown>>;
   submitted_at: string;

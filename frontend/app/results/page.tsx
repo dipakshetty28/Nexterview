@@ -68,10 +68,12 @@ function ResultsDashboardContent() {
   const averageScore = reviewedItems.length
     ? Math.round(reviewedItems.reduce((sum, item) => sum + (item.weighted_score ?? 0), 0) / reviewedItems.length)
     : null;
-  const pendingReviews = items.filter((item) => item.status === "submitted" && item.weighted_score === null).length;
+  const pendingReviews = items.filter(
+    (item) => ["submitted", "ready_for_review", "review_in_progress"].includes(item.status) && item.weighted_score === null,
+  ).length;
   const statusData = useMemo(
     () =>
-      ["invited", "started", "submitted", "reviewed"].map((status) => ({
+      ["invited", "started", "ready_for_review", "review_in_progress", "reviewed", "review_failed"].map((status) => ({
         status,
         count: items.filter((item) => item.status === status).length,
       })),

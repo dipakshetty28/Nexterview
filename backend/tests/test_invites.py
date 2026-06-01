@@ -596,7 +596,7 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     )
     assert submitted_session_response.status_code == 200
     submitted_session = submitted_session_response.json()
-    assert submitted_session["status"] == "reviewed"
+    assert submitted_session["status"] == "ready_for_review"
     assert submitted_session["submission"]["id"] == submission["id"]
     _assert_no_submission_transport_fields(submitted_session["submission"])
 
@@ -1137,6 +1137,11 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
                     recommendation="hire" if agent["type"] == "hiring_recommendation" else "strong signal",
                     explanation=f"{agent['label']} completed the mocked review.",
                     raw_response={"source": "mock"},
+                    expected=["Expected status filtering and total calculation."],
+                    observed=["Candidate changed app/main.py and app/services/orders.py."],
+                    follow_up_questions=["How would you validate stale status filters?"],
+                    confidence=0.91,
+                    review_source="mock",
                 )
                 for agent in AGENT_DEFINITIONS
             ]
@@ -1158,18 +1163,40 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
         "app/main.py",
         "app/services/orders.py",
     }
-    review_response = client.get(
+    pre_review_response = client.get(
         f"/api/submissions/{submission['id']}/reviews",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    assert review_response.status_code == 200
+    assert pre_review_response.status_code == 200
+    pre_review_summary = pre_review_response.json()
+    assert pre_review_summary["status"] == "ready_for_review"
+    assert pre_review_summary["agent_reviews"] == []
+
+    candidate_session_response = client.get(
+        f"/api/sessions/{session['id']}",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert candidate_session_response.status_code == 200
+    assert "hidden_evaluation_points" not in candidate_session_response.text
+    assert "interviewer_rubric" not in candidate_session_response.text
+    assert "expected_solution_summary" not in candidate_session_response.text
+
+    review_response = client.post(
+        f"/api/submissions/{submission['id']}/review",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert review_response.status_code == 201
     review_summary = review_response.json()
     assert review_summary["status"] == "reviewed"
     assert review_summary["weighted_score"] == 82
     assert review_summary["recommendation"] == "hire"
     assert len(review_summary["agent_reviews"]) == len(AGENT_DEFINITIONS)
+    assert review_summary["agent_reviews"][0]["expected"]
+    assert review_summary["agent_reviews"][0]["observed"]
+    assert review_summary["agent_reviews"][0]["follow_up_questions"]
     assert review_summary["ai_usage_analysis"]["candidate_prompt_count"] == 1
     assert review_summary["ai_usage_analysis"]["validated_suggestions"] is True
+    assert review_summary["review_source"] == "mock"
     assert "github" not in review_summary
     assert review_runner.context is not None
 
@@ -1183,6 +1210,12 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
     assert result["changed_files"] == ["app/main.py", "app/services/orders.py"]
     assert "github" not in result
     assert len(result["score_breakdown"]) == 7
+    assert result["expected_behavior"]
+    assert result["expected_solution_summary"]
+    assert result["hidden_evaluation_points"]
+    assert result["interviewer_rubric"]
+    assert result["candidate_observed"]
+    assert result["suggested_follow_up_questions"]
     assert "Review input validation before hiring decision." in result["risk_flags"]
     assert "app/main.py" in {file["path"] for file in result["submitted_files"]}
     assert [message["role"] for message in result["ai_chat_transcript"]] == ["user", "assistant"]
@@ -1228,6 +1261,56 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
     assert stored_score.weighted_score == 82
     assert stored_score.recommendation == "hire"
     assert len(stored_score.score_breakdown) == 7
+
+
+def test_review_failure_marks_submission_failed_without_fake_pass(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
+    admin_token, candidate_token, session, workspace = _start_workspace_session(
+        client,
+        candidate_email="review-fails@example.com",
+    )
+    _fix_order_workspace(client, candidate_token=candidate_token, session_id=session["id"], workspace=workspace)
+
+    class StubGitHubPublisher:
+        def publish_submission(self, **_: object) -> GitHubSubmissionPushResult:
+            return GitHubSubmissionPushResult(status="disabled")
+
+    app.dependency_overrides[get_github_submission_publisher] = lambda: StubGitHubPublisher()
+    submit_response = client.post(
+        f"/api/sessions/{session['id']}/submit",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+        json={"notes": "Root cause: totals ignored quantity. I verified the failing path before submitting."},
+    )
+    assert submit_response.status_code == 201
+    submission = submit_response.json()
+    assert submission["status"] == "ready_for_review"
+
+    class FailingReviewRunner:
+        def review(self, context: dict[str, object]) -> list[AgentReviewResult]:
+            raise RuntimeError("provider unavailable")
+
+    app.dependency_overrides[get_review_agent_runner] = lambda: FailingReviewRunner()
+    review_response = client.post(
+        f"/api/submissions/{submission['id']}/review",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert review_response.status_code == 503
+    assert review_response.json()["detail"] == "Unable to complete submission review. The submission was not scored."
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        stored_session = db.execute(select(InterviewSession).where(InterviewSession.id == session["id"])).scalar_one()
+        stored_submission = db.execute(select(Submission).where(Submission.id == submission["id"])).scalar_one()
+        assert db.execute(select(AgentReview)).scalars().all() == []
+        assert db.execute(select(Score)).scalars().all() == []
+    finally:
+        db.close()
+    assert stored_session.status == InterviewSessionStatus.REVIEW_FAILED
+    assert stored_submission.status == "review_failed"
 
 
 def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -470,12 +470,21 @@ function AgentReviewCard({ review }: { review: AgentReview }) {
           Score {review.score}
         </span>
       </div>
+      {review.review_source ? (
+        <p className="text-xs uppercase tracking-wide text-slate-500">
+          Source: {review.review_source.replace(/_/g, " ")}
+          {review.confidence !== null && review.confidence !== undefined ? ` / confidence ${Math.round(review.confidence * 100)}%` : ""}
+        </p>
+      ) : null}
       <MarkdownBlock content={review.explanation} emptyLabel="No reviewer explanation was recorded." />
       <div className="grid gap-4 md:grid-cols-2">
+        <TextList items={review.expected} title="Expected" />
+        <TextList items={review.observed} title="Observed" />
         <TextList items={review.strengths} title="Strengths" />
         <TextList items={review.weaknesses} title="Weaknesses" />
         <TextList items={review.evidence} title="Evidence" />
         <TextList items={review.risk_flags} title="Risk Flags" />
+        <TextList items={review.follow_up_questions} title="Follow-Up Questions" />
       </div>
     </section>
   );
@@ -752,6 +761,23 @@ function NotesTab({ result }: { result: SessionResult }) {
           <div className="lg:col-span-2">
             <h3 className="text-sm font-semibold text-slate-100">Visible Validation Guidance</h3>
             <MarkdownBlock content={result.validation_instructions} emptyLabel="No validation guidance was stored." />
+          </div>
+        </div>
+      </SectionPanel>
+      <SectionPanel
+        description="Interviewer-only review context used to compare the candidate submission against the intended solution."
+        title="Expected Outcome"
+      >
+        <div className="grid gap-4 lg:grid-cols-2">
+          <TextList items={result.expected_behavior} title="Expected Behavior" />
+          <TextList items={result.hidden_evaluation_points} title="Hidden Evaluation Points" />
+          <TextList items={result.interviewer_rubric} title="Interviewer Rubric" />
+          <TextList items={result.candidate_observed} title="What Candidate Did" />
+          <TextList items={result.candidate_missed} title="What Candidate Missed" />
+          <TextList items={result.suggested_follow_up_questions} title="Suggested Follow-Up" />
+          <div className="lg:col-span-2">
+            <h3 className="text-sm font-semibold text-slate-100">Expected Solution Summary</h3>
+            <MarkdownBlock content={result.expected_solution_summary} emptyLabel="No expected solution summary was stored." />
           </div>
         </div>
       </SectionPanel>

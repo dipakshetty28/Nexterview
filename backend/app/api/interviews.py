@@ -138,7 +138,13 @@ def _get_or_create_invited_session(db: Session, *, interview: Interview, candida
         db.flush()
         return session
 
-    if session.status in {InterviewSessionStatus.SUBMITTED, InterviewSessionStatus.REVIEWED}:
+    if session.status in {
+        InterviewSessionStatus.SUBMITTED,
+        InterviewSessionStatus.READY_FOR_REVIEW,
+        InterviewSessionStatus.REVIEW_IN_PROGRESS,
+        InterviewSessionStatus.REVIEWED,
+        InterviewSessionStatus.REVIEW_FAILED,
+    }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This candidate already has a submitted or reviewed session for the interview.",

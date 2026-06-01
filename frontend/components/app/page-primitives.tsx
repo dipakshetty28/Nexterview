@@ -18,10 +18,10 @@ export function statusTone(status: string | null | undefined): Tone {
   if (["ready", "active", "reviewed", "passed", "complete", "completed", "ready_for_review"].includes(normalized)) {
     return "success";
   }
-  if (["submitted", "pending", "started", "draft"].includes(normalized)) {
+  if (["submitted", "pending", "started", "draft", "review_in_progress"].includes(normalized)) {
     return "warning";
   }
-  if (["failed", "error", "deleted", "rejected", "timeout", "tests_failed"].includes(normalized)) {
+  if (["failed", "error", "deleted", "rejected", "timeout", "tests_failed", "review_failed"].includes(normalized)) {
     return "danger";
   }
   if (["invited", "generated", "running"].includes(normalized)) {

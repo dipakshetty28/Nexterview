@@ -15,7 +15,10 @@ class InterviewSessionStatus(str, enum.Enum):
     INVITED = "invited"
     STARTED = "started"
     SUBMITTED = "submitted"
+    READY_FOR_REVIEW = "ready_for_review"
+    REVIEW_IN_PROGRESS = "review_in_progress"
     REVIEWED = "reviewed"
+    REVIEW_FAILED = "review_failed"
 
 
 class TelemetryEventType(str, enum.Enum):
