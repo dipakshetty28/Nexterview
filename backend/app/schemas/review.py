@@ -104,6 +104,24 @@ class ResultsDashboardItemRead(BaseModel):
     weighted_score: float | None
     recommendation: str | None
     risk_flags: list[str] = Field(default_factory=list)
+    test_attempt_count: int = 0
+    first_test_status: str | None = None
+    final_test_status: str | None = None
+    final_test_summary: str | None = None
+
+
+class TestRunSummaryRead(BaseModel):
+    id: UUID
+    status: str
+    command: str
+    duration_ms: int
+    passed_count: int
+    failed_count: int
+    total_count: int
+    failure_summary: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SubmissionReviewSummaryRead(BaseModel):
@@ -120,6 +138,7 @@ class SubmissionReviewSummaryRead(BaseModel):
     recommendation: str | None
     ai_usage_analysis: AIUsageAnalysisRead
     test_output: str | None
+    test_runs: list[TestRunSummaryRead] = Field(default_factory=list)
     notes: str
 
 

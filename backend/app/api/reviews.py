@@ -37,6 +37,7 @@ from app.schemas.review import (
     SessionResultRead,
     SubmittedCodeFileRead,
     SubmissionReviewSummaryRead,
+    TestRunSummaryRead,
     TelemetryTimelineEventRead,
 )
 from app.services.review_agents import (
@@ -89,6 +90,7 @@ def _submission_options():
         .selectinload(ScenarioProject.files),
         selectinload(Submission.session).selectinload(InterviewSession.ai_messages),
         selectinload(Submission.session).selectinload(InterviewSession.telemetry_events),
+        selectinload(Submission.session).selectinload(InterviewSession.test_runs),
         selectinload(Submission.session).selectinload(InterviewSession.candidate),
         selectinload(Submission.session).selectinload(InterviewSession.interview),
         selectinload(Submission.agent_reviews),
@@ -176,6 +178,18 @@ def _review_context(submission: Submission) -> dict[str, Any]:
         "file_diffs": submission.file_diffs,
         "ai_chat_transcript": _ai_transcript(session.ai_messages),
         "telemetry_events": _telemetry_events(session.telemetry_events),
+        "test_runs": [
+            {
+                "status": test_run.status,
+                "command": test_run.command,
+                "passed_count": test_run.passed_count,
+                "failed_count": test_run.failed_count,
+                "total_count": test_run.total_count,
+                "failure_summary": test_run.failure_summary,
+                "created_at": test_run.created_at,
+            }
+            for test_run in sorted(session.test_runs, key=lambda item: item.created_at)
+        ],
         "test_run_outputs": test_outputs,
         "candidate_notes": submission.notes or session.notes or "",
     }
@@ -329,6 +343,8 @@ def _dashboard_item_for_session(session: InterviewSession) -> ResultsDashboardIt
     score = submission.score if submission and submission.score else None
     reviews = submission.agent_reviews if submission else []
     scenario = session.interview.scenario
+    test_runs = sorted(session.test_runs, key=lambda item: item.created_at)
+    final_test_run = test_runs[-1] if test_runs else None
     return ResultsDashboardItemRead(
         session_id=session.id,
         submission_id=submission.id if submission else None,
@@ -344,6 +360,10 @@ def _dashboard_item_for_session(session: InterviewSession) -> ResultsDashboardIt
         weighted_score=score.weighted_score if score else None,
         recommendation=score.recommendation if score else None,
         risk_flags=_risk_flags_for_reviews(reviews),
+        test_attempt_count=len(test_runs),
+        first_test_status=test_runs[0].status if test_runs else None,
+        final_test_status=final_test_run.status if final_test_run else None,
+        final_test_summary=final_test_run.failure_summary if final_test_run and final_test_run.failure_summary else None,
     )
 
 
@@ -361,6 +381,10 @@ def _summary_for_submission(submission: Submission, *, context: dict[str, Any] |
         recommendation = _recommendation_for_reviews(reviews, weighted_score)
         ai_usage_analysis = summarize_ai_usage(review_context)
     file_diffs = [FileDiffRead.model_validate(file_diff) for file_diff in submission.file_diffs]
+    test_runs = [
+        TestRunSummaryRead.model_validate(test_run)
+        for test_run in sorted(submission.session.test_runs, key=lambda item: item.created_at)
+    ]
     return SubmissionReviewSummaryRead(
         submission_id=submission.id,
         session_id=submission.session_id,
@@ -375,6 +399,7 @@ def _summary_for_submission(submission: Submission, *, context: dict[str, Any] |
         recommendation=recommendation,
         ai_usage_analysis=AIUsageAnalysisRead.model_validate(ai_usage_analysis),
         test_output=submission.test_output,
+        test_runs=test_runs,
         notes=submission.notes,
     )
 
@@ -579,6 +604,7 @@ def list_results_dashboard(
                 selectinload(InterviewSession.interview).selectinload(Interview.scenario),
                 selectinload(InterviewSession.submission).selectinload(Submission.score),
                 selectinload(InterviewSession.submission).selectinload(Submission.agent_reviews),
+                selectinload(InterviewSession.test_runs),
             )
             .where(InterviewSession.organization_id.in_(organization_ids))
             .order_by(InterviewSession.updated_at.desc())

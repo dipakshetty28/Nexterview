@@ -22,6 +22,7 @@ from app.models import Interview, Organization, OrganizationMember, ProjectFile,
 from app.schemas.scenario import GeneratedScenario
 from app.services.scenario_generator import ScenarioGenerationResult, ScenarioGenerator, parse_generated_project_json
 from app.services.scenario_seed_catalog import seed_scenarios
+from app.services.test_runner import CandidateTestFile, CandidateTestRunner
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -366,6 +367,37 @@ def _assert_java_spring_boot_scenario(scenario: GeneratedScenario) -> None:
     assert "pytest" not in "\n".join(project_file.content.lower() for project_file in scenario.project.files)
 
 
+def _runner_files_from_scenario(
+    scenario: GeneratedScenario,
+    *,
+    use_expected_solution: bool = False,
+) -> list[CandidateTestFile]:
+    assert scenario.project is not None
+    solution_by_path = {
+        solution.path: solution
+        for solution in scenario.expected_solution_files_json
+    }
+    files = []
+    for project_file in scenario.project.files:
+        if project_file.is_hidden:
+            continue
+        solution = solution_by_path.get(project_file.path) if use_expected_solution else None
+        files.append(
+            CandidateTestFile(
+                path=project_file.path,
+                content=solution.content if solution else project_file.content,
+                language=solution.language if solution else project_file.language,
+                file_type=project_file.file_type.value,
+                is_hidden=False,
+            )
+        )
+    return files
+
+
+def _visible_runner_tests(files: list[CandidateTestFile]) -> list[CandidateTestFile]:
+    return [file for file in files if file.file_type == "test" or "test" in file.path.lower()]
+
+
 def test_create_interview_and_generate_scenario_with_mocked_ai_service(client: TestClient) -> None:
     token = _register_admin(client)
     headers = {"Authorization": f"Bearer {token}"}
@@ -499,6 +531,54 @@ def test_python_fastapi_selection_still_returns_python_project(monkeypatch: pyte
     assert "app/main.py" in paths
     assert any(path.endswith(".py") for path in paths)
     assert not any(path.startswith("src/main/java/") for path in paths)
+
+
+def test_python_seed_starter_fails_and_expected_solution_passes_real_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-should-not-leak")
+    scenario = parse_generated_project_json(json.dumps(_seed_payload("orders-review")), interview=_fastapi_interview())
+    runner = CandidateTestRunner(timeout_seconds=15)
+    starter_files = _runner_files_from_scenario(scenario)
+    fixed_files = _runner_files_from_scenario(scenario, use_expected_solution=True)
+
+    starter_result = runner.run_candidate_tests(
+        scenario=scenario,  # type: ignore[arg-type]
+        candidate_files=starter_files,
+        visible_tests=_visible_runner_tests(starter_files),
+    )
+    fixed_result = runner.run_candidate_tests(
+        scenario=scenario,  # type: ignore[arg-type]
+        candidate_files=fixed_files,
+        visible_tests=_visible_runner_tests(fixed_files),
+    )
+
+    assert starter_result.status == "failed"
+    assert starter_result.failed_count >= 1
+    assert fixed_result.status == "passed"
+    assert fixed_result.passed_count >= 2
+    assert "sk-test-should-not-leak" not in starter_result.stdout
+    assert "sk-test-should-not-leak" not in starter_result.stderr
+
+
+def test_test_runner_timeout_is_reported() -> None:
+    runner = CandidateTestRunner(timeout_seconds=1)
+    scenario = parse_generated_project_json(json.dumps(_seed_payload("orders-review")), interview=_fastapi_interview())
+    files = [
+        CandidateTestFile(path="app/main.py", content="def health():\n    return 'ok'\n", language="python", file_type="source"),
+        CandidateTestFile(path="app/data/orders.json", content="[]\n", language="json", file_type="data"),
+        CandidateTestFile(path="tests/test_timeout.py", content="import time\n\ndef test_timeout():\n    time.sleep(5)\n", language="python", file_type="test"),
+        CandidateTestFile(path="README.md", content="# Timeout\n", language="markdown", file_type="docs"),
+    ]
+
+    result = runner.run_candidate_tests(
+        scenario=scenario,  # type: ignore[arg-type]
+        candidate_files=files,
+        visible_tests=_visible_runner_tests(files),
+    )
+
+    assert result.status == "timeout"
+    assert "timed out" in result.failure_summary
 
 
 def test_wrong_language_ai_output_retries_then_uses_java_seed(

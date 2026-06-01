@@ -194,6 +194,7 @@ function ResultsDashboardContent() {
                       <th className="px-5 py-3 font-medium">Candidate</th>
                       <th className="px-5 py-3 font-medium">Interview</th>
                       <th className="px-5 py-3 font-medium">Status</th>
+                      <th className="px-5 py-3 font-medium">Tests</th>
                       <th className="px-5 py-3 font-medium">Score</th>
                       <th className="px-5 py-3 font-medium">Recommendation</th>
                       <th className="px-5 py-3 font-medium">Submitted</th>
@@ -213,6 +214,19 @@ function ResultsDashboardContent() {
                         </td>
                         <td className="px-5 py-4">
                           <StatusBadge label={item.status} tone={statusTone(item.status)} />
+                        </td>
+                        <td className="px-5 py-4">
+                          {item.final_test_status ? (
+                            <div className="grid gap-1">
+                              <StatusBadge
+                                label={item.final_test_status}
+                                tone={item.final_test_status === "passed" ? "success" : "warning"}
+                              />
+                              <span className="text-xs text-slate-500">{item.test_attempt_count} run{item.test_attempt_count === 1 ? "" : "s"}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-600">Not run</span>
+                          )}
                         </td>
                         <td className={`px-5 py-4 text-lg font-semibold ${scoreTone(item.weighted_score)}`}>
                           {item.weighted_score ?? "--"}

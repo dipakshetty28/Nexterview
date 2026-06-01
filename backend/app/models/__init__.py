@@ -12,6 +12,7 @@ from app.models.interview import (
     Score,
     SessionFileSnapshot,
     Submission,
+    TestRun,
     TelemetryEvent,
     TelemetryEventType,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "Score",
     "SessionFileSnapshot",
     "Submission",
+    "TestRun",
     "TelemetryEvent",
     "TelemetryEventType",
     "User",

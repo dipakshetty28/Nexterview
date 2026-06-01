@@ -375,6 +375,49 @@ function ResultOverview({ result }: { result: SessionResult }) {
         </section>
       </div>
 
+      <SectionPanel
+        description="Stored validation attempts from the candidate workspace and final submission."
+        title="Test Validation"
+      >
+        {result.test_runs.length ? (
+          <div className="grid gap-3 md:grid-cols-3">
+            <MiniMetric label="Attempts" value={result.test_runs.length} />
+            <MiniMetric label="First Run" value={result.test_runs[0]?.status ?? "n/a"} />
+            <MiniMetric label="Final Run" value={result.test_runs[result.test_runs.length - 1]?.status ?? "n/a"} />
+            <div className="md:col-span-3 overflow-x-auto rounded-md border border-slate-800 bg-slate-950">
+              <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
+                <thead className="text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">When</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium">Command</th>
+                    <th className="px-3 py-2 font-medium">Pass/Fail</th>
+                    <th className="px-3 py-2 font-medium">Summary</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {result.test_runs.map((run) => (
+                    <tr key={run.id}>
+                      <td className="px-3 py-2 text-slate-400">{formatDateTime(run.created_at)}</td>
+                      <td className="px-3 py-2">
+                        <StatusBadge label={run.status} tone={run.status === "passed" ? "success" : "warning"} />
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs text-cyan-100">{sanitizeDisplayText(run.command)}</td>
+                      <td className="px-3 py-2 text-slate-300">
+                        {run.passed_count}/{run.total_count} passed
+                      </td>
+                      <td className="max-w-sm px-3 py-2 text-slate-400">{sanitizeDisplayText(run.failure_summary) || "All checks passed."}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <EmptyState description="No validation attempts have been recorded for this session." title="No test runs yet" />
+        )}
+      </SectionPanel>
+
       <ScoreBreakdown result={result} />
 
       <div className="grid gap-5 lg:grid-cols-2">
