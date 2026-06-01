@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -25,7 +25,12 @@ class TelemetryEventType(str, enum.Enum):
     FILE_EDITED = "file_edited"
     FILE_SAVED = "file_saved"
     NOTE_UPDATED = "note_updated"
+    TEST_RUN_STARTED = "test_run_started"
     TEST_RUN = "test_run"
+    TEST_RUN_COMPLETED = "test_run_completed"
+    TEST_RUN_FAILED = "test_run_failed"
+    FINAL_TESTS_PASSED = "final_tests_passed"
+    FINAL_TESTS_FAILED = "final_tests_failed"
     AI_PROMPT_SENT = "ai_prompt_sent"
     SUBMISSION_CREATED = "submission_created"
 
@@ -242,6 +247,12 @@ class InterviewSession(TimestampMixin, Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    test_runs: Mapped[list[TestRun]] = relationship(
+        "TestRun",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="TestRun.created_at",
+    )
     submission: Mapped[Submission | None] = relationship(
         "Submission",
         back_populates="session",
@@ -395,6 +406,7 @@ class Submission(TimestampMixin, Base):
     code: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str] = mapped_column(Text, nullable=False)
     test_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="submitted")
     submitted_files: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
     file_diffs: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -419,6 +431,60 @@ class Submission(TimestampMixin, Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    test_runs: Mapped[list[TestRun]] = relationship(
+        "TestRun",
+        back_populates="submission",
+        order_by="TestRun.created_at",
+    )
+
+
+class TestRun(Base):
+    __tablename__ = "test_runs"
+    __test__ = False
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("submissions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    scenario_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scenarios.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    command: Mapped[str] = mapped_column(String(500), nullable=False)
+    stdout: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    stderr: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    passed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="test_runs")
+    submission: Mapped[Submission | None] = relationship("Submission", back_populates="test_runs")
+    scenario: Mapped[Scenario] = relationship("Scenario")
 
 
 class AgentReview(TimestampMixin, Base):

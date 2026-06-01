@@ -26,6 +26,7 @@ from app.models.interview import (
     ScenarioProject,
     SessionFileSnapshot,
     Submission,
+    TestRun,
     TelemetryEvent,
     TelemetryEventType,
 )
@@ -66,6 +67,7 @@ from app.services.github import (
 from app.services.invites import hash_invite_token
 from app.services.review_agents import RepoSubmissionReviewer, generate_file_diffs
 from app.services.scenario_projects import ensure_session_file_snapshots
+from app.services.test_runner import CandidateTestFile, CandidateTestRunner
 
 router = APIRouter(prefix="/api", tags=["candidate"])
 
@@ -99,6 +101,10 @@ def get_candidate_copilot() -> CandidateCopilot:
 
 def get_github_submission_publisher() -> GitHubSubmissionPublisher:
     return GitHubSubmissionPublisher()
+
+
+def get_candidate_test_runner() -> CandidateTestRunner:
+    return CandidateTestRunner()
 
 
 def _now_utc() -> datetime:
@@ -387,6 +393,98 @@ def _visible_session_snapshots(db: Session, *, session: InterviewSession) -> lis
             .order_by(SessionFileSnapshot.path.asc())
         ).scalars()
     )
+
+
+def _test_files_from_snapshots(snapshots: list[SessionFileSnapshot]) -> list[CandidateTestFile]:
+    return [
+        _runner_file_from_snapshot(snapshot)
+        for snapshot in snapshots
+        if snapshot.project_file.file_type in {"test", "hidden_test"} or "test" in snapshot.path.lower()
+    ]
+
+
+def _runner_file_from_snapshot(snapshot: SessionFileSnapshot) -> CandidateTestFile:
+    return CandidateTestFile(
+        path=snapshot.path,
+        content=snapshot.current_content,
+        language=snapshot.language,
+        file_type=snapshot.project_file.file_type,
+        is_hidden=snapshot.project_file.is_hidden,
+    )
+
+
+def _runner_file_from_submitted_file(file: dict[str, object]) -> CandidateTestFile:
+    return CandidateTestFile(
+        path=str(file.get("path") or ""),
+        content=str(file.get("content") or ""),
+        language=str(file.get("language") or "text"),
+        file_type=str(file.get("file_type") or ""),
+        is_hidden=False,
+    )
+
+
+def _hidden_test_files_for_session(session: InterviewSession) -> list[CandidateTestFile]:
+    scenario = session.interview.scenario
+    project = scenario.project if scenario else None
+    if project is None:
+        return []
+    return [
+        CandidateTestFile(
+            path=project_file.path,
+            content=project_file.content,
+            language=project_file.language,
+            file_type=project_file.file_type,
+            is_hidden=True,
+        )
+        for project_file in project.files
+        if project_file.is_hidden and project_file.file_type in {"test", "hidden_test"}
+    ]
+
+
+def _persist_test_run(
+    db: Session,
+    *,
+    session: InterviewSession,
+    result: TestRunResult,
+    submission: Submission | None = None,
+) -> TestRun:
+    scenario = session.interview.scenario
+    if scenario is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview scenario has not been generated yet.")
+    test_run = TestRun(
+        organization_id=session.organization_id,
+        session_id=session.id,
+        submission_id=submission.id if submission else None,
+        scenario_id=scenario.id,
+        status=result.status,
+        command=result.command,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        duration_ms=result.duration_ms,
+        passed_count=result.passed_count,
+        failed_count=result.failed_count,
+        total_count=result.total_count,
+        failure_summary=result.failure_summary,
+        created_at=result.created_at,
+    )
+    db.add(test_run)
+    return test_run
+
+
+def _test_run_event_payload(result: TestRunResult, *, test_run_id: UUID | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "status": result.status,
+        "command": result.command,
+        "output": result.output,
+        "duration_ms": result.duration_ms,
+        "passed_count": result.passed_count,
+        "failed_count": result.failed_count,
+        "total_count": result.total_count,
+        "failure_summary": result.failure_summary,
+    }
+    if test_run_id is not None:
+        payload["test_run_id"] = str(test_run_id)
+    return payload
 
 
 def _workspace_file_response(snapshot: SessionFileSnapshot) -> CandidateWorkspaceFileRead:
@@ -1007,7 +1105,15 @@ def save_session_event(
         TelemetryEventType.AI_PROMPT_SENT,
     }:
         _ensure_session_accepts_work(session)
-    elif payload.event_type in {TelemetryEventType.TEST_RUN, TelemetryEventType.SUBMISSION_CREATED}:
+    elif payload.event_type in {
+        TelemetryEventType.TEST_RUN_STARTED,
+        TelemetryEventType.TEST_RUN,
+        TelemetryEventType.TEST_RUN_COMPLETED,
+        TelemetryEventType.TEST_RUN_FAILED,
+        TelemetryEventType.FINAL_TESTS_PASSED,
+        TelemetryEventType.FINAL_TESTS_FAILED,
+        TelemetryEventType.SUBMISSION_CREATED,
+    }:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Use the dedicated test run or submit endpoint for this event type.",
@@ -1030,38 +1136,51 @@ def run_session_tests(
     payload: TestRunRequest,
     current_user: Annotated[User, Depends(require_roles(UserRole.CANDIDATE))],
     db: Annotated[Session, Depends(get_db)],
+    runner: Annotated[CandidateTestRunner, Depends(get_candidate_test_runner)],
 ) -> TestRunResult:
     session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
     _ensure_session_accepts_work(session)
     visible_snapshots = _visible_session_snapshots(db, session=session)
-    if payload.code is not None or not visible_snapshots:
-        code = payload.code if payload.code is not None else session.latest_code or session.interview.scenario.starter_code
-        result = _simulate_test_run(session, code)
-        code_length = len(code)
-        changed_file_count = 0
-        session.latest_code = code
-    else:
-        result = _simulate_workspace_test_run(session, visible_snapshots)
-        code_length = sum(len(snapshot.current_content) for snapshot in visible_snapshots)
-        changed_file_count = sum(
-            1 for snapshot in visible_snapshots if snapshot.current_content != snapshot.original_content
-        )
-        session.latest_code = _primary_code_from_snapshots(db, session=session)
+    if payload.code is not None and visible_snapshots:
+        entrypoint = session.interview.scenario.project.entrypoint if session.interview.scenario.project else None
+        target_snapshot = next((snapshot for snapshot in visible_snapshots if snapshot.path == entrypoint), visible_snapshots[0])
+        target_snapshot.current_content = payload.code
+    candidate_files = [_runner_file_from_snapshot(snapshot) for snapshot in visible_snapshots]
+    visible_tests = _test_files_from_snapshots(visible_snapshots)
     now = _now_utc()
 
+    _create_event(
+        db,
+        session=session,
+        event_type=TelemetryEventType.TEST_RUN_STARTED,
+        payload={
+            "command": session.interview.scenario.validation_command,
+            "visible_file_count": len(candidate_files),
+            "visible_test_count": len(visible_tests),
+        },
+    )
+    result = runner.run_candidate_tests(
+        scenario=session.interview.scenario,
+        candidate_files=candidate_files,
+        visible_tests=visible_tests,
+        hidden_tests=[],
+        include_hidden=False,
+    )
+    test_run = _persist_test_run(db, session=session, result=result)
     session.last_autosaved_at = now
+    session.latest_code = _primary_code_from_snapshots(db, session=session)
+    db.flush()
     _create_event(
         db,
         session=session,
         event_type=TelemetryEventType.TEST_RUN,
-        payload={
-            "status": result.status,
-            "output": result.output,
-            "code_length": code_length,
-            "changed_file_count": changed_file_count,
-            "case_count": len(result.cases),
-            "test_command": session.interview.scenario.project.test_command if session.interview.scenario.project else None,
-        },
+        payload=_test_run_event_payload(result, test_run_id=test_run.id),
+    )
+    _create_event(
+        db,
+        session=session,
+        event_type=TelemetryEventType.TEST_RUN_COMPLETED if result.status == "passed" else TelemetryEventType.TEST_RUN_FAILED,
+        payload=_test_run_event_payload(result, test_run_id=test_run.id),
     )
 
     try:
@@ -1082,6 +1201,7 @@ def submit_session_solution(
     db: Annotated[Session, Depends(get_db)],
     github_publisher: Annotated[GitHubSubmissionPublisher, Depends(get_github_submission_publisher)],
     reviewer: Annotated[RepoSubmissionReviewer, Depends(get_review_agent_runner)],
+    runner: Annotated[CandidateTestRunner, Depends(get_candidate_test_runner)],
 ) -> SubmissionRead:
     session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
     _ensure_session_accepts_work(session)
@@ -1117,6 +1237,7 @@ def submit_session_solution(
         code=code,
         notes=payload.notes,
         test_output=payload.test_output,
+        status="submitted",
         submitted_files=submitted_files,
         file_diffs=file_diffs,
         branch_name=github_result.branch_name,
@@ -1138,6 +1259,18 @@ def submit_session_solution(
 
     try:
         db.flush()
+        candidate_test_files = [_runner_file_from_submitted_file(file) for file in submitted_files]
+        final_test_result = runner.run_candidate_tests(
+            scenario=session.interview.scenario,
+            candidate_files=candidate_test_files,
+            visible_tests=[file for file in candidate_test_files if file.file_type in {"test", "hidden_test"} or "test" in file.path.lower()],
+            hidden_tests=_hidden_test_files_for_session(session),
+            include_hidden=False,
+        )
+        final_test_run = _persist_test_run(db, session=session, result=final_test_result, submission=submission)
+        submission.test_output = final_test_result.output
+        submission.status = "ready_for_review" if final_test_result.status == "passed" else "tests_failed"
+        db.flush()
         _create_event(
             db,
             session=session,
@@ -1150,7 +1283,19 @@ def submit_session_solution(
                 "changed_file_count": sum(
                     1 for snapshot in visible_snapshots if snapshot.current_content != snapshot.original_content
                 ),
+                "test_run_id": str(final_test_run.id),
+                "test_status": final_test_result.status,
             },
+        )
+        _create_event(
+            db,
+            session=session,
+            event_type=(
+                TelemetryEventType.FINAL_TESTS_PASSED
+                if final_test_result.status == "passed"
+                else TelemetryEventType.FINAL_TESTS_FAILED
+            ),
+            payload=_test_run_event_payload(final_test_result, test_run_id=final_test_run.id),
         )
         db.commit()
     except SQLAlchemyError as exc:

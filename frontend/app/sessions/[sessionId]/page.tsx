@@ -728,6 +728,7 @@ function OutputPanel({
   isRunningTests,
   isSubmitted,
   validationInstructions,
+  validationCommand,
   onRunTests,
 }: {
   testRun: TestRunResult | null;
@@ -736,6 +737,7 @@ function OutputPanel({
   isRunningTests: boolean;
   isSubmitted: boolean;
   validationInstructions: string;
+  validationCommand: string;
   onRunTests: () => void;
 }) {
   return (
@@ -744,7 +746,9 @@ function OutputPanel({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-100">Workspace Checks</h3>
-            <p className="mt-1 text-xs text-slate-500">Runs against the current saved file snapshots.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Runs <span className="font-mono text-slate-300">{sanitizeCandidateText(validationCommand || "workspace checks")}</span> against the current saved files.
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {testRun ? (
@@ -770,6 +774,25 @@ function OutputPanel({
 
         {testRun ? (
           <div className="mt-3 grid gap-2">
+            <div className="grid gap-2 rounded border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300 sm:grid-cols-4">
+              <span>
+                Command <span className="block font-mono text-slate-100">{sanitizeCandidateText(testRun.command)}</span>
+              </span>
+              <span>
+                Result <span className="block font-semibold text-slate-100">{testRun.status}</span>
+              </span>
+              <span>
+                Passed <span className="block font-semibold text-emerald-200">{testRun.passed_count}/{testRun.total_count}</span>
+              </span>
+              <span>
+                Duration <span className="block font-semibold text-slate-100">{testRun.duration_ms}ms</span>
+              </span>
+            </div>
+            {testRun.failure_summary ? (
+              <div className="rounded border border-amber-900/70 bg-amber-950/20 px-3 py-2 text-sm text-amber-100">
+                {sanitizeCandidateText(testRun.failure_summary)}
+              </div>
+            ) : null}
             <pre
               className={cn(
                 "max-h-32 overflow-auto whitespace-pre-wrap rounded border px-3 py-2 font-mono text-xs leading-5",
@@ -780,6 +803,16 @@ function OutputPanel({
             >
               {sanitizeCandidateText(testRun.output)}
             </pre>
+            {testRun.stdout ? (
+              <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-xs leading-5 text-slate-300">
+                {sanitizeCandidateText(testRun.stdout)}
+              </pre>
+            ) : null}
+            {testRun.stderr ? (
+              <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded border border-red-900/60 bg-red-950/20 px-3 py-2 font-mono text-xs leading-5 text-red-100">
+                {sanitizeCandidateText(testRun.stderr)}
+              </pre>
+            ) : null}
             <div className="grid max-h-56 gap-2 overflow-auto pr-1">
               {testRun.cases.map((testCase) => (
                 <div className="rounded border border-slate-800 bg-slate-950 px-3 py-2 text-sm" key={testCase.name}>
@@ -797,13 +830,16 @@ function OutputPanel({
           </div>
         ) : !isRunningTests && !testRunError ? (
           <div className="mt-3 rounded border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-400">
-            Run checks when you want pass/fail feedback for the current workspace.
+            Tests have not been run yet. Run checks when you want pass/fail feedback for the current workspace.
           </div>
         ) : null}
       </div>
 
       <div className="min-w-0">
         <h3 className="text-sm font-semibold text-slate-100">Validation Notes</h3>
+        {testRun ? (
+          <p className="mt-2 text-xs text-slate-500">Last run {formatSavedAt(testRun.created_at)}.</p>
+        ) : null}
         <p className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-300">
           {sanitizeCandidateText(validationInstructions || "Use the provided checks and summarize your verification before submitting.")}
         </p>
@@ -1374,7 +1410,11 @@ function CandidateSessionContent() {
       setLastSavedAt(createdSubmission.submitted_at);
       setDirtyFileIds(new Set());
       setIsSubmitDialogOpen(false);
-      setSubmitSuccessMessage("Final solution submitted. The workspace is locked for review.");
+      setSubmitSuccessMessage(
+        createdSubmission.status === "ready_for_review"
+          ? "Final solution submitted. Tests passed and the workspace is locked for review."
+          : "Final solution submitted. Tests did not pass, and the workspace is locked for interviewer review.",
+      );
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to submit final solution.";
       setError(message);
@@ -1636,6 +1676,7 @@ function CandidateSessionContent() {
                                 testRun={testRun}
                                 testRunError={testRunError}
                                 testRunStartedAt={testRunStartedAt}
+                                validationCommand={session.scenario.validation_command}
                                 validationInstructions={session.scenario.validation_instructions}
                               />
                             </div>

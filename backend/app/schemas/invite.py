@@ -90,6 +90,7 @@ class SubmissionRead(BaseModel):
     code: str
     notes: str
     test_output: str | None
+    status: str
     submitted_files: list[dict[str, Any]]
     file_diffs: list[dict[str, Any]]
     submitted_at: datetime
@@ -161,6 +162,15 @@ class TestCaseResult(BaseModel):
 
 class TestRunResult(BaseModel):
     status: str
+    command: str
+    stdout: str = ""
+    stderr: str = ""
+    duration_ms: int = 0
+    passed_count: int = 0
+    failed_count: int = 0
+    total_count: int = 0
+    failure_summary: str = ""
+    created_at: datetime
     output: str
     cases: list[TestCaseResult]
 

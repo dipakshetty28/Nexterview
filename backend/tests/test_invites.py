@@ -34,6 +34,7 @@ from app.models import (
     Score,
     SessionFileSnapshot,
     Submission,
+    TestRun,
     TelemetryEvent,
     TelemetryEventType,
     User,
@@ -59,6 +60,7 @@ _ = (
     Score,
     SessionFileSnapshot,
     Submission,
+    TestRun,
     TelemetryEvent,
     User,
 )
@@ -437,14 +439,28 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert autosaved_session["latest_code"] == edited_code
     assert autosaved_session["notes"] == notes
 
+    workspace_response = client.get(
+        f"/api/sessions/{session['id']}/workspace",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert workspace_response.status_code == 200
+    _fix_order_workspace(
+        client,
+        candidate_token=candidate_token,
+        session_id=session["id"],
+        workspace=workspace_response.json(),
+    )
+
     test_run_response = client.post(
         f"/api/sessions/{session['id']}/run-tests",
         headers={"Authorization": f"Bearer {candidate_token}"},
-        json={"code": edited_code},
+        json={},
     )
     assert test_run_response.status_code == 200
     test_run = test_run_response.json()
     assert test_run["status"] == "passed"
+    assert test_run["command"] == "python -m pytest"
+    assert test_run["passed_count"] >= 2
     assert test_run["cases"]
 
     session_id = session["id"]
@@ -726,8 +742,10 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
     assert run_response.status_code == 200
     test_run = run_response.json()
     assert test_run["status"] == "passed"
-    assert "workspace checks passed using `app/data/orders.json`" in test_run["output"]
-    assert test_run["cases"][0]["name"] == "seed-data-loaded"
+    assert test_run["command"] == "python -m pytest"
+    assert test_run["passed_count"] >= 2
+    assert "tests passed" in test_run["output"]
+    assert test_run["cases"][0]["name"] == "pytest"
 
     submit_response = client.post(
         f"/api/sessions/{session['id']}/submit",
@@ -736,6 +754,8 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
     )
     assert submit_response.status_code == 201
     submission = submit_response.json()
+    assert submission["status"] == "ready_for_review"
+    assert "tests passed" in submission["test_output"]
     submitted_by_path = {submitted_file["path"]: submitted_file for submitted_file in submission["submitted_files"]}
     assert submitted_by_path["app/services/orders.py"]["content"] == fixed_service
     assert submitted_by_path["app/main.py"]["content"] == fixed_main
@@ -750,6 +770,7 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
             .where(ProjectFile.path == "app/services/orders.py")
         ).scalar_one()
         event_types = [event.event_type for event in db.execute(select(TelemetryEvent)).scalars()]
+        test_runs = db.execute(select(TestRun)).scalars().all()
     finally:
         db.close()
     assert service_snapshot.current_content == fixed_service
@@ -758,13 +779,42 @@ def test_candidate_workspace_edits_snapshots_and_submits_files(
     assert TelemetryEventType.FILE_EDITED in event_types
     assert TelemetryEventType.FILE_SAVED in event_types
     assert TelemetryEventType.TEST_RUN in event_types
+    assert TelemetryEventType.TEST_RUN_STARTED in event_types
+    assert TelemetryEventType.TEST_RUN_COMPLETED in event_types
+    assert TelemetryEventType.FINAL_TESTS_PASSED in event_types
     assert TelemetryEventType.SUBMISSION_CREATED in event_types
+    assert len(test_runs) >= 2
 
     delete_response = client.delete(
         f"/api/interviews/{interview_id}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert delete_response.status_code == 204
+
+
+def test_candidate_cannot_run_tests_for_another_candidate_session(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    _, _, session, _ = _start_workspace_session(
+        client,
+        candidate_email="owner-session@example.com",
+    )
+    _create_candidate(client, email="other-candidate@example.com", full_name="Other Candidate")
+    other_login = client.post(
+        "/api/auth/login",
+        json={"email": "other-candidate@example.com", "password": "StrongPass123!"},
+    )
+    assert other_login.status_code == 200
+
+    response = client.post(
+        f"/api/sessions/{session['id']}/run-tests",
+        headers={"Authorization": f"Bearer {other_login.json()['access_token']}"},
+        json={},
+    )
+
+    assert response.status_code == 404
 
 
 def test_candidate_java_spring_scenario_is_stack_matched_and_safe(

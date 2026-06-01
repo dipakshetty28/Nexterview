@@ -610,6 +610,7 @@ _SPRING_BOOT_POM = (
     "  <dependencies>\n"
     "    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>\n"
     "    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>\n"
+    "    <dependency><groupId>org.springframework.data</groupId><artifactId>spring-data-commons</artifactId></dependency>\n"
     "    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>\n"
     "  </dependencies>\n"
     "  <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>\n"

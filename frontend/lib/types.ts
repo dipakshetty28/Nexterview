@@ -284,6 +284,22 @@ export type ResultsDashboardItem = {
   weighted_score: number | null;
   recommendation: string | null;
   risk_flags: string[];
+  test_attempt_count: number;
+  first_test_status: string | null;
+  final_test_status: string | null;
+  final_test_summary: string | null;
+};
+
+export type TestRunSummary = {
+  id: string;
+  status: "passed" | "failed" | "error" | "timeout";
+  command: string;
+  duration_ms: number;
+  passed_count: number;
+  failed_count: number;
+  total_count: number;
+  failure_summary: string;
+  created_at: string;
 };
 
 export type SubmissionReviewSummary = {
@@ -300,6 +316,7 @@ export type SubmissionReviewSummary = {
   recommendation: string | null;
   ai_usage_analysis: AIUsageAnalysis;
   test_output: string | null;
+  test_runs: TestRunSummary[];
   notes: string;
 };
 
@@ -443,7 +460,12 @@ export type TelemetryEventType =
   | "file_edited"
   | "file_saved"
   | "note_updated"
+  | "test_run_started"
   | "test_run"
+  | "test_run_completed"
+  | "test_run_failed"
+  | "final_tests_passed"
+  | "final_tests_failed"
   | "ai_prompt_sent"
   | "submission_created";
 
@@ -463,7 +485,16 @@ export type TestCaseResult = {
 };
 
 export type TestRunResult = {
-  status: "passed" | "failed";
+  status: "passed" | "failed" | "error" | "timeout";
+  command: string;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  passed_count: number;
+  failed_count: number;
+  total_count: number;
+  failure_summary: string;
+  created_at: string;
   output: string;
   cases: TestCaseResult[];
 };
@@ -475,6 +506,7 @@ export type Submission = {
   code: string;
   notes: string;
   test_output: string | null;
+  status: "submitted" | "tests_failed" | "ready_for_review";
   submitted_files: Array<Record<string, unknown>>;
   file_diffs: Array<Record<string, unknown>>;
   submitted_at: string;

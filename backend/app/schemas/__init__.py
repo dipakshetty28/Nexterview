@@ -46,6 +46,7 @@ from app.schemas.review import (
     SessionResultRead,
     SubmittedCodeFileRead,
     SubmissionReviewSummaryRead,
+    TestRunSummaryRead,
     TelemetryTimelineEventRead,
 )
 from app.schemas.scenario import GeneratedScenario, ScenarioFilePayload, ScenarioRead
@@ -103,5 +104,6 @@ __all__ = [
     "TokenPayload",
     "TestRunRequest",
     "TestRunResult",
+    "TestRunSummaryRead",
     "UserRead",
 ]
