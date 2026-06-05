@@ -319,16 +319,16 @@ class InviteToken(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    session_id: Mapped[uuid.UUID] = mapped_column(
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("interview_sessions.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
-    candidate_id: Mapped[uuid.UUID] = mapped_column(
+    candidate_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -337,14 +337,23 @@ class InviteToken(TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    token: Mapped[str | None] = mapped_column(String(160), nullable=True, unique=True, index=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
-    candidate_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    candidate_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    candidate_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    regenerated_from_invite_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("invite_tokens.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     interview: Mapped[Interview] = relationship("Interview", back_populates="invite_tokens")
-    session: Mapped[InterviewSession] = relationship("InterviewSession", back_populates="invite_tokens")
+    session: Mapped[InterviewSession | None] = relationship("InterviewSession", back_populates="invite_tokens")
 
 
 class TelemetryEvent(TimestampMixin, Base):

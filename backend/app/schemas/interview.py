@@ -66,7 +66,12 @@ class InterviewSubmissionResultRead(BaseModel):
     candidate_email: str
     candidate_name: str
     status: str
+    invite_status: str | None = None
+    invite_expires_at: datetime | None = None
+    invite_used_at: datetime | None = None
+    started_at: datetime | None = None
     submitted_at: datetime | None
+    reviewed_at: datetime | None = None
     submission_id: UUID | None
     test_output: str | None
     notes: str | None

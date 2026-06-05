@@ -29,6 +29,7 @@ from app.models.interview import (
     TelemetryEvent,
     TelemetryEventType,
 )
+from app.models.organization import OrganizationMember
 from app.models.user import User, UserRole
 from app.schemas.invite import (
     AICopilotRequest,
@@ -116,6 +117,16 @@ def _is_expired(expires_at: datetime) -> bool:
     return expires_at <= _now_utc()
 
 
+def _invite_status(invite: InviteToken) -> str:
+    if invite.revoked_at is not None or invite.status == "revoked":
+        return "revoked"
+    if invite.used_at is not None or invite.status == "used":
+        return "used"
+    if _is_expired(invite.expires_at):
+        return "expired"
+    return "active"
+
+
 def _get_invite_by_token(db: Session, raw_token: str) -> InviteToken:
     invite = db.execute(
         select(InviteToken)
@@ -128,11 +139,51 @@ def _get_invite_by_token(db: Session, raw_token: str) -> InviteToken:
         )
         .where(InviteToken.token_hash == hash_invite_token(raw_token))
     ).scalar_one_or_none()
-    if invite is None or invite.revoked_at is not None:
+    if invite is None or _invite_status(invite) == "revoked":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite was not found.")
-    if _is_expired(invite.expires_at):
+    if _invite_status(invite) == "expired":
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has expired.")
     return invite
+
+
+def _candidate_belongs_to_invite_org(db: Session, *, invite: InviteToken, current_user: User) -> bool:
+    membership = db.execute(
+        select(OrganizationMember).where(
+            OrganizationMember.organization_id == invite.organization_id,
+            OrganizationMember.user_id == current_user.id,
+            OrganizationMember.role == UserRole.CANDIDATE,
+        )
+    ).scalar_one_or_none()
+    return membership is not None
+
+
+def _get_or_create_invite_session(db: Session, *, invite: InviteToken, current_user: User) -> InterviewSession:
+    if invite.session is not None:
+        if invite.session.candidate_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This invite belongs to a different candidate.")
+        return invite.session
+
+    session = db.execute(
+        select(InterviewSession).where(
+            InterviewSession.interview_id == invite.interview_id,
+            InterviewSession.candidate_id == current_user.id,
+        )
+    ).scalar_one_or_none()
+    if session is None:
+        session = InterviewSession(
+            organization_id=invite.organization_id,
+            interview_id=invite.interview_id,
+            candidate_id=current_user.id,
+            status=InterviewSessionStatus.INVITED,
+        )
+        db.add(session)
+        db.flush()
+    invite.session_id = session.id
+    invite.candidate_id = current_user.id
+    invite.candidate_email = invite.candidate_email or current_user.email
+    invite.candidate_name = invite.candidate_name or current_user.full_name
+    invite.session = session
+    return session
 
 
 def _public_invite_response(invite: InviteToken) -> PublicInviteRead:
@@ -150,8 +201,9 @@ def _public_invite_response(invite: InviteToken) -> PublicInviteRead:
             scenario_title=interview.scenario.title if interview.scenario else None,
         ),
         candidate_email=invite.candidate_email,
+        candidate_name=invite.candidate_name,
         expires_at=invite.expires_at,
-        status=invite.session.status,
+        status=_invite_status(invite),
     )
 
 
@@ -932,17 +984,23 @@ def start_session_from_invite(
     db: Annotated[Session, Depends(get_db)],
 ) -> InterviewSessionRead:
     invite = _get_invite_by_token(db, token)
-    if current_user.id != invite.candidate_id or current_user.email != invite.candidate_email:
+    invite_status = _invite_status(invite)
+    if invite_status == "used" and invite.candidate_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has already been used.")
+    if invite.candidate_email and current_user.email != invite.candidate_email:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This invite belongs to a different candidate.",
         )
+    if not _candidate_belongs_to_invite_org(db, invite=invite, current_user=current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This invite belongs to a different organization.")
     if invite.interview.scenario is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Interview scenario has not been generated yet.",
         )
-    if invite.session.status in {
+    session = _get_or_create_invite_session(db, invite=invite, current_user=current_user)
+    if session.status in {
         InterviewSessionStatus.SUBMITTED,
         InterviewSessionStatus.READY_FOR_REVIEW,
         InterviewSessionStatus.REVIEW_IN_PROGRESS,
@@ -954,13 +1012,14 @@ def start_session_from_invite(
             detail="This interview session has already been submitted.",
         )
 
-    if invite.session.status == InterviewSessionStatus.INVITED:
-        invite.session.status = InterviewSessionStatus.STARTED
-        invite.session.started_at = _now_utc()
-        invite.session.latest_code = invite.session.latest_code or invite.interview.scenario.starter_code
-        invite.session.last_autosaved_at = invite.session.last_autosaved_at or _now_utc()
-        invite.used_at = invite.used_at or _now_utc()
-    ensure_session_file_snapshots(db, session=invite.session)
+    if session.status == InterviewSessionStatus.INVITED:
+        session.status = InterviewSessionStatus.STARTED
+        session.started_at = _now_utc()
+        session.latest_code = session.latest_code or invite.interview.scenario.starter_code
+        session.last_autosaved_at = session.last_autosaved_at or _now_utc()
+    invite.status = "used"
+    invite.used_at = invite.used_at or _now_utc()
+    ensure_session_file_snapshots(db, session=session)
 
     try:
         db.commit()
@@ -971,9 +1030,9 @@ def start_session_from_invite(
             detail="Unable to start interview session.",
         ) from exc
 
-    db.refresh(invite.session)
-    session = _get_candidate_session_for_user(db, session_id=invite.session_id, current_user=current_user)
-    return _session_response(session)
+    db.refresh(session)
+    loaded_session = _get_candidate_session_for_user(db, session_id=session.id, current_user=current_user)
+    return _session_response(loaded_session)
 
 
 @router.get("/sessions/{session_id}", response_model=InterviewSessionRead)

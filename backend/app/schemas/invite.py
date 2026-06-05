@@ -4,25 +4,57 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.models.interview import AIMessageRole, InterviewSessionStatus, TelemetryEventType
 from app.schemas.project import CandidateScenarioProjectRead, SubmittedFileRead
 
 
 class InviteCreateRequest(BaseModel):
-    candidate_email: EmailStr
+    candidate_email: EmailStr | None = None
+    candidate_name: str | None = Field(default=None, max_length=160)
     expires_in_days: int = Field(default=14, ge=1, le=60)
+    invite_count: int = Field(default=1, ge=1, le=25)
+
+    @field_validator("candidate_name")
+    @classmethod
+    def strip_candidate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def validate_bulk_candidate_target(self) -> "InviteCreateRequest":
+        if self.candidate_email and self.invite_count != 1:
+            raise ValueError("Candidate-specific invites must be generated one at a time.")
+        return self
 
 
 class InviteTokenRead(BaseModel):
     id: UUID
     interview_id: UUID
-    session_id: UUID
-    candidate_email: EmailStr
-    invite_url: str
+    session_id: UUID | None
+    candidate_id: UUID | None = None
+    candidate_email: EmailStr | None
+    candidate_name: str | None = None
+    invite_url: str | None
+    status: str
     expires_at: datetime
+    created_at: datetime
     used_at: datetime | None
+    revoked_at: datetime | None = None
+    regenerated_from_invite_id: UUID | None = None
+    created_by_user_id: UUID | None = None
+    session_status: str | None = None
+
+
+class InviteCreateResponse(InviteTokenRead):
+    invites: list[InviteTokenRead] = Field(default_factory=list)
+
+
+class InviteRegenerateRequest(BaseModel):
+    expires_in_days: int = Field(default=14, ge=1, le=60)
 
 
 class InviteInterviewRead(BaseModel):
@@ -39,9 +71,10 @@ class InviteInterviewRead(BaseModel):
 
 class PublicInviteRead(BaseModel):
     interview: InviteInterviewRead
-    candidate_email: EmailStr
+    candidate_email: EmailStr | None
+    candidate_name: str | None = None
     expires_at: datetime
-    status: InterviewSessionStatus
+    status: str
 
 
 class CandidateScenarioRead(BaseModel):
