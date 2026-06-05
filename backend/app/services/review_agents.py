@@ -132,6 +132,12 @@ class RepoSubmissionReviewer:
             return _fallback_agent_review(context=context, agent=agent, prior_reviews=prior_reviews)
         try:
             return _openai_agent_review(context=context, agent=agent)
+        except ModuleNotFoundError as exc:
+            if exc.name != "openai":
+                logger.warning("OpenAI review agent dependency import failed; marking review as failed.", exc_info=True)
+                raise ReviewAgentError(f"{agent['label']} could not produce a valid review.") from exc
+            logger.warning("OpenAI SDK is not installed; using rule-based review fallback.", exc_info=True)
+            return _fallback_agent_review(context=context, agent=agent, prior_reviews=prior_reviews)
         except Exception as exc:
             logger.warning("OpenAI review agent failed; marking review as failed.", exc_info=True)
             raise ReviewAgentError(f"{agent['label']} could not produce a valid review.") from exc
