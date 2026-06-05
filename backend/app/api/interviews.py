@@ -15,15 +15,13 @@ from app.db.session import get_db
 from app.models.interview import (
     Interview,
     InterviewSession,
-    InterviewSessionStatus,
     InviteToken,
     Scenario,
     ScenarioProject,
     Submission,
 )
-from app.models.organization import OrganizationMember
 from app.models.user import User, UserRole
-from app.schemas.invite import InviteCreateRequest, InviteTokenRead
+from app.schemas.invite import InviteCreateRequest, InviteCreateResponse, InviteRegenerateRequest, InviteTokenRead
 from app.schemas.interview import InterviewCreateRequest, InterviewRead, InterviewSubmissionResultRead
 from app.schemas.scenario import ScenarioRead
 from app.services.github import GitHubSubmissionFile, GitHubSubmissionPublisher
@@ -100,56 +98,84 @@ def _invite_url(raw_token: str) -> str:
     return f"{settings.frontend_url.rstrip('/')}/invite/{raw_token}"
 
 
-def _get_candidate_for_invite(db: Session, *, organization_id: UUID, candidate_email: str) -> User:
-    candidate = db.execute(
-        select(User)
-        .join(OrganizationMember)
+def _invite_status(invite: InviteToken) -> str:
+    if invite.revoked_at is not None or invite.status == "revoked":
+        return "revoked"
+    if invite.used_at is not None or invite.status == "used":
+        return "used"
+    expires_at = invite.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
+        return "expired"
+    return "active"
+
+
+def _invite_url_for(invite: InviteToken, *, raw_token: str | None = None) -> str | None:
+    token = raw_token or invite.token
+    if not token:
+        return None
+    return _invite_url(token)
+
+
+def _invite_read(invite: InviteToken, *, raw_token: str | None = None) -> InviteTokenRead:
+    return InviteTokenRead(
+        id=invite.id,
+        interview_id=invite.interview_id,
+        session_id=invite.session_id,
+        candidate_id=invite.candidate_id,
+        candidate_email=invite.candidate_email,
+        candidate_name=invite.candidate_name,
+        invite_url=_invite_url_for(invite, raw_token=raw_token),
+        status=_invite_status(invite),
+        expires_at=invite.expires_at,
+        created_at=invite.created_at,
+        used_at=invite.used_at,
+        revoked_at=invite.revoked_at,
+        regenerated_from_invite_id=invite.regenerated_from_invite_id,
+        created_by_user_id=invite.created_by_id,
+        session_status=invite.session.status.value if invite.session else None,
+    )
+
+
+def _new_invite(
+    *,
+    interview: Interview,
+    current_user: User,
+    expires_in_days: int,
+    candidate_email: str | None,
+    candidate_name: str | None,
+    regenerated_from_invite_id: UUID | None = None,
+) -> tuple[InviteToken, str]:
+    raw_token = generate_invite_token()
+    invite = InviteToken(
+        organization_id=interview.organization_id,
+        interview_id=interview.id,
+        created_by_id=current_user.id,
+        token=raw_token,
+        token_hash=hash_invite_token(raw_token),
+        candidate_email=candidate_email,
+        candidate_name=candidate_name,
+        status="active",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=expires_in_days),
+        regenerated_from_invite_id=regenerated_from_invite_id,
+    )
+    return invite, raw_token
+
+
+def _get_invite_for_interview(db: Session, *, interview: Interview, invite_id: UUID) -> InviteToken:
+    invite = db.execute(
+        select(InviteToken)
+        .options(selectinload(InviteToken.session))
         .where(
-            User.email == candidate_email,
-            User.role == UserRole.CANDIDATE,
-            User.is_active.is_(True),
-            OrganizationMember.organization_id == organization_id,
-            OrganizationMember.role == UserRole.CANDIDATE,
+            InviteToken.id == invite_id,
+            InviteToken.interview_id == interview.id,
+            InviteToken.organization_id == interview.organization_id,
         )
     ).scalar_one_or_none()
-    if candidate is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active candidate account with that email exists in this organization.",
-        )
-    return candidate
-
-
-def _get_or_create_invited_session(db: Session, *, interview: Interview, candidate: User) -> InterviewSession:
-    session = db.execute(
-        select(InterviewSession).where(
-            InterviewSession.interview_id == interview.id,
-            InterviewSession.candidate_id == candidate.id,
-        )
-    ).scalar_one_or_none()
-    if session is None:
-        session = InterviewSession(
-            organization_id=interview.organization_id,
-            interview_id=interview.id,
-            candidate_id=candidate.id,
-            status=InterviewSessionStatus.INVITED,
-        )
-        db.add(session)
-        db.flush()
-        return session
-
-    if session.status in {
-        InterviewSessionStatus.SUBMITTED,
-        InterviewSessionStatus.READY_FOR_REVIEW,
-        InterviewSessionStatus.REVIEW_IN_PROGRESS,
-        InterviewSessionStatus.REVIEWED,
-        InterviewSessionStatus.REVIEW_FAILED,
-    }:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This candidate already has a submitted or reviewed session for the interview.",
-        )
-    return session
+    if invite is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite was not found.")
+    return invite
 
 
 @router.post("", response_model=InterviewRead, status_code=status.HTTP_201_CREATED)
@@ -245,6 +271,17 @@ def list_interview_submissions(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to load interview submissions.",
         ) from exc
+    session_ids = [session.id for session, _, _ in rows]
+    invites_by_session_id: dict[UUID, InviteToken] = {}
+    if session_ids:
+        invite_rows = db.execute(
+            select(InviteToken)
+            .where(InviteToken.session_id.in_(session_ids))
+            .order_by(InviteToken.created_at.desc())
+        ).scalars()
+        for invite in invite_rows:
+            if invite.session_id and invite.session_id not in invites_by_session_id:
+                invites_by_session_id[invite.session_id] = invite
 
     return [
         InterviewSubmissionResultRead(
@@ -253,7 +290,12 @@ def list_interview_submissions(
             candidate_email=candidate.email,
             candidate_name=candidate.full_name,
             status=session.status.value,
+            invite_status=_invite_status(invites_by_session_id[session.id]) if session.id in invites_by_session_id else None,
+            invite_expires_at=invites_by_session_id[session.id].expires_at if session.id in invites_by_session_id else None,
+            invite_used_at=invites_by_session_id[session.id].used_at if session.id in invites_by_session_id else None,
+            started_at=session.started_at,
             submitted_at=session.submitted_at,
+            reviewed_at=session.reviewed_at,
             submission_id=submission.id if submission else None,
             test_output=submission.test_output if submission else None,
             notes=submission.notes if submission else session.notes,
@@ -284,29 +326,51 @@ def delete_interview(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{interview_id}/invite", response_model=InviteTokenRead, status_code=status.HTTP_201_CREATED)
+@router.get("/{interview_id}/invites", response_model=list[InviteTokenRead])
+def list_interview_invites(
+    interview_id: UUID,
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[InviteTokenRead]:
+    interview = _get_interview_for_user(db, interview_id, current_user)
+    try:
+        invites = db.execute(
+            select(InviteToken)
+            .options(selectinload(InviteToken.session))
+            .where(InviteToken.interview_id == interview.id, InviteToken.organization_id == interview.organization_id)
+            .order_by(InviteToken.created_at.desc())
+        ).scalars()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to load invites.") from exc
+    return [_invite_read(invite) for invite in invites]
+
+
+@router.post("/{interview_id}/invite", response_model=InviteCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_candidate_invite(
     interview_id: UUID,
     payload: InviteCreateRequest,
     current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
     db: Annotated[Session, Depends(get_db)],
-) -> InviteTokenRead:
+) -> InviteCreateResponse:
     interview = _get_interview_for_user(db, interview_id, current_user)
-    candidate_email = _normalize_email(payload.candidate_email)
-    candidate = _get_candidate_for_invite(db, organization_id=interview.organization_id, candidate_email=candidate_email)
-    session = _get_or_create_invited_session(db, interview=interview, candidate=candidate)
-    raw_token = generate_invite_token()
-    invite = InviteToken(
-        organization_id=interview.organization_id,
-        interview_id=interview.id,
-        session_id=session.id,
-        candidate_id=candidate.id,
-        created_by_id=current_user.id,
-        token_hash=hash_invite_token(raw_token),
-        candidate_email=candidate_email,
-        expires_at=datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days),
-    )
-    db.add(invite)
+    if interview.scenario is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Generate a scenario before creating invites.")
+    candidate_email = _normalize_email(str(payload.candidate_email)) if payload.candidate_email else None
+    created_invites: list[tuple[InviteToken, str]] = []
+    for _ in range(payload.invite_count):
+        invite, raw_token = _new_invite(
+            interview=interview,
+            current_user=current_user,
+            expires_in_days=payload.expires_in_days,
+            candidate_email=candidate_email,
+            candidate_name=payload.candidate_name,
+        )
+        created_invites.append((invite, raw_token))
+        db.add(invite)
 
     try:
         db.commit()
@@ -320,16 +384,72 @@ def create_candidate_invite(
             detail="Unable to create invite.",
         ) from exc
 
-    db.refresh(invite)
-    return InviteTokenRead(
-        id=invite.id,
-        interview_id=invite.interview_id,
-        session_id=invite.session_id,
+    invite_reads: list[InviteTokenRead] = []
+    for invite, raw_token in created_invites:
+        db.refresh(invite)
+        invite_reads.append(_invite_read(invite, raw_token=raw_token))
+    first_invite = invite_reads[0]
+    return InviteCreateResponse(**first_invite.model_dump(), invites=invite_reads)
+
+
+@router.post("/{interview_id}/invites/{invite_id}/regenerate", response_model=InviteTokenRead, status_code=status.HTTP_201_CREATED)
+def regenerate_interview_invite(
+    interview_id: UUID,
+    invite_id: UUID,
+    payload: InviteRegenerateRequest,
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+) -> InviteTokenRead:
+    interview = _get_interview_for_user(db, interview_id, current_user)
+    invite = _get_invite_for_interview(db, interview=interview, invite_id=invite_id)
+    if _invite_status(invite) != "active":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only active invites can be regenerated.")
+    invite.status = "revoked"
+    invite.revoked_at = datetime.now(timezone.utc)
+    replacement, raw_token = _new_invite(
+        interview=interview,
+        current_user=current_user,
+        expires_in_days=payload.expires_in_days,
         candidate_email=invite.candidate_email,
-        invite_url=_invite_url(raw_token),
-        expires_at=invite.expires_at,
-        used_at=invite.used_at,
+        candidate_name=invite.candidate_name,
+        regenerated_from_invite_id=invite.id,
     )
+    db.add(replacement)
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to regenerate invite.") from exc
+    db.refresh(replacement)
+    return _invite_read(replacement, raw_token=raw_token)
+
+
+@router.post("/{interview_id}/invites/{invite_id}/revoke", response_model=InviteTokenRead)
+def revoke_interview_invite(
+    interview_id: UUID,
+    invite_id: UUID,
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+) -> InviteTokenRead:
+    interview = _get_interview_for_user(db, interview_id, current_user)
+    invite = _get_invite_for_interview(db, interview=interview, invite_id=invite_id)
+    if _invite_status(invite) != "active":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only active invites can be revoked.")
+    invite.status = "revoked"
+    invite.revoked_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to revoke invite.") from exc
+    db.refresh(invite)
+    return _invite_read(invite)
 
 
 @router.post("/{interview_id}/generate-scenario", response_model=ScenarioRead)

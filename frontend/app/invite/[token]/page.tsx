@@ -60,7 +60,11 @@ export default function InvitePage() {
   }
 
   const loginHref = `/login?next=${encodeURIComponent(`/invite/${inviteToken}`)}`;
-  const isExpectedCandidate = Boolean(invite && user?.email === invite.candidate_email && user.role === "CANDIDATE");
+  const isExpectedCandidate = Boolean(
+    invite &&
+      user?.role === "CANDIDATE" &&
+      (!invite.candidate_email || user.email === invite.candidate_email),
+  );
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
@@ -79,7 +83,8 @@ export default function InvitePage() {
             <div className="grid gap-5">
               <div>
                 <p className="text-sm text-slate-400">Invited candidate</p>
-                <p className="mt-1 font-medium">{invite.candidate_email}</p>
+                <p className="mt-1 font-medium">{invite.candidate_name || invite.candidate_email || "Any candidate in the organization"}</p>
+                {invite.candidate_email ? <p className="mt-1 text-sm text-slate-500">{invite.candidate_email}</p> : null}
               </div>
               <div>
                 <h2 className="text-2xl font-semibold">{invite.interview.role_title}</h2>
@@ -124,12 +129,14 @@ export default function InvitePage() {
               ) : null}
               {!isAuthLoading && user && !isExpectedCandidate ? (
                 <p className="rounded-md border border-amber-900/70 bg-amber-950/40 px-3 py-2 text-sm text-amber-100">
-                  This invite is assigned to {invite.candidate_email}. Log in with that candidate account to start.
+                  {invite.candidate_email
+                    ? `This invite is assigned to ${invite.candidate_email}. Log in with that candidate account to start.`
+                    : "Log in with a candidate account in the invited organization to start."}
                 </p>
               ) : null}
               {isExpectedCandidate ? (
                 <Button disabled={isStarting} onClick={() => void handleStart()} type="button">
-                  {isStarting ? "Starting..." : invite.status === "started" ? "Continue interview" : "Start interview"}
+                  {isStarting ? "Starting..." : invite.status === "used" ? "Continue interview" : "Start interview"}
                 </Button>
               ) : null}
             </div>

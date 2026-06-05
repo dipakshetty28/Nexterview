@@ -25,11 +25,17 @@ import {
   deleteInterview,
   generateScenario,
   getInterview,
+  getInterviewInvites,
   getInterviewSubmissions,
+  regenerateInterviewInvite,
+  revokeInterviewInvite,
 } from "@/lib/api";
-import type { Interview, InterviewSubmissionResult, ProjectFile, ScenarioProject } from "@/lib/types";
+import type { Interview, InterviewSubmissionResult, InviteTokenResponse, ProjectFile, ScenarioProject } from "@/lib/types";
 
 const DEFAULT_INVITE_EMAIL = "";
+const DEFAULT_INVITE_NAME = "";
+const DEFAULT_INVITE_DAYS = 14;
+const DEFAULT_INVITE_COUNT = 1;
 
 function fileTone(file: ProjectFile): string {
   if (file.is_hidden) {
@@ -106,6 +112,14 @@ function CandidateSessionRow({ submission }: { submission: InterviewSubmissionRe
       <td className="px-5 py-4">
         <StatusBadge label={submission.status} tone={statusTone(submission.status)} />
       </td>
+      <td className="px-5 py-4">
+        {submission.invite_status ? (
+          <StatusBadge label={submission.invite_status} tone={statusTone(submission.invite_status)} />
+        ) : (
+          <span className="text-slate-600">No invite</span>
+        )}
+      </td>
+      <td className="px-5 py-4 text-slate-400">{formatDateTime(submission.started_at)}</td>
       <td className="px-5 py-4 text-slate-400">{formatDateTime(submission.submitted_at)}</td>
       <td className="px-5 py-4 text-slate-300">{submission.test_output ? "Test output submitted" : "No test output"}</td>
       <td className="px-5 py-4">
@@ -121,19 +135,76 @@ function CandidateSessionRow({ submission }: { submission: InterviewSubmissionRe
   );
 }
 
+function InviteRow({
+  invite,
+  isCopied,
+  isBusy,
+  onCopy,
+  onRegenerate,
+  onRevoke,
+}: {
+  invite: InviteTokenResponse;
+  isCopied: boolean;
+  isBusy: boolean;
+  onCopy: (invite: InviteTokenResponse) => void;
+  onRegenerate: (invite: InviteTokenResponse) => void;
+  onRevoke: (invite: InviteTokenResponse) => void;
+}) {
+  const candidateLabel = invite.candidate_name || invite.candidate_email || "Generic invite";
+  return (
+    <tr className="hover:bg-slate-950/60">
+      <td className="px-5 py-4">
+        <p className="font-medium text-slate-100">{candidateLabel}</p>
+        <p className="mt-1 text-xs text-slate-500">{invite.candidate_email ?? "Any candidate in this organization"}</p>
+      </td>
+      <td className="px-5 py-4">
+        <StatusBadge label={invite.status} tone={statusTone(invite.status)} />
+      </td>
+      <td className="px-5 py-4 text-slate-400">{formatDateTime(invite.expires_at)}</td>
+      <td className="px-5 py-4 text-slate-400">{formatDateTime(invite.used_at)}</td>
+      <td className="max-w-sm px-5 py-4">
+        {invite.invite_url ? (
+          <p className="break-all rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-cyan-200">
+            {invite.invite_url}
+          </p>
+        ) : (
+          <span className="text-xs text-slate-500">Legacy link unavailable.</span>
+        )}
+      </td>
+      <td className="px-5 py-4">
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={!invite.invite_url || isBusy} onClick={() => onCopy(invite)} type="button" variant="ghost">
+            {isCopied ? "Copied" : "Copy"}
+          </Button>
+          <Button disabled={invite.status !== "active" || isBusy} onClick={() => onRegenerate(invite)} type="button" variant="secondary">
+            Regenerate
+          </Button>
+          <Button disabled={invite.status !== "active" || isBusy} onClick={() => onRevoke(invite)} type="button" variant="ghost">
+            Revoke
+          </Button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function InterviewDetailContent() {
   const params = useParams<{ interviewId: string }>();
   const router = useRouter();
   const { token, user } = useAuth();
   const [interview, setInterview] = useState<Interview | null>(null);
   const [submissions, setSubmissions] = useState<InterviewSubmissionResult[]>([]);
+  const [invites, setInvites] = useState<InviteTokenResponse[]>([]);
   const [inviteEmail, setInviteEmail] = useState(DEFAULT_INVITE_EMAIL);
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteName, setInviteName] = useState(DEFAULT_INVITE_NAME);
+  const [inviteExpiryDays, setInviteExpiryDays] = useState(DEFAULT_INVITE_DAYS);
+  const [inviteCount, setInviteCount] = useState(DEFAULT_INVITE_COUNT);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCreatingInvite, setIsCreatingInvite] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
+  const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -151,10 +222,15 @@ function InterviewDetailContent() {
 
     setIsLoading(true);
     setError(null);
-    Promise.all([getInterview(token, params.interviewId), getInterviewSubmissions(token, params.interviewId)])
-      .then(([loadedInterview, loadedSubmissions]) => {
+    Promise.all([
+      getInterview(token, params.interviewId),
+      getInterviewSubmissions(token, params.interviewId),
+      getInterviewInvites(token, params.interviewId),
+    ])
+      .then(([loadedInterview, loadedSubmissions, loadedInvites]) => {
         setInterview(loadedInterview);
         setSubmissions(loadedSubmissions);
+        setInvites(loadedInvites);
       })
       .catch((requestError: unknown) => {
         const message = requestError instanceof ApiError ? requestError.message : "Unable to load interview.";
@@ -187,8 +263,9 @@ function InterviewDetailContent() {
       return;
     }
     const candidateEmail = inviteEmail.trim();
-    if (!candidateEmail) {
-      setError("Enter a candidate email before creating an invite.");
+    const candidateName = inviteName.trim();
+    if (candidateEmail && inviteCount !== 1) {
+      setError("Candidate-specific invites must be generated one at a time.");
       return;
     }
 
@@ -196,9 +273,17 @@ function InterviewDetailContent() {
     setError(null);
     setSuccessMessage(null);
     try {
-      const invite = await createCandidateInvite(token, interview.id, { candidate_email: candidateEmail });
-      setInviteLink(invite.invite_url);
-      setSuccessMessage("Invite link created.");
+      const response = await createCandidateInvite(token, interview.id, {
+        candidate_email: candidateEmail || null,
+        candidate_name: candidateName || null,
+        expires_in_days: inviteExpiryDays,
+        invite_count: inviteCount,
+      });
+      setInvites((currentInvites) => [...response.invites, ...currentInvites]);
+      setInviteEmail(DEFAULT_INVITE_EMAIL);
+      setInviteName(DEFAULT_INVITE_NAME);
+      setInviteCount(DEFAULT_INVITE_COUNT);
+      setSuccessMessage(response.invites.length === 1 ? "Invite link created." : `${response.invites.length} invite links created.`);
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to create invite.";
       setError(message);
@@ -207,16 +292,59 @@ function InterviewDetailContent() {
     }
   }
 
-  async function handleCopyInvite() {
-    if (!inviteLink) {
+  async function handleCopyInvite(invite: InviteTokenResponse) {
+    if (!invite.invite_url) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(inviteLink);
-      setIsCopied(true);
-      window.setTimeout(() => setIsCopied(false), 1500);
+      await navigator.clipboard.writeText(invite.invite_url);
+      setCopiedInviteId(invite.id);
+      window.setTimeout(() => setCopiedInviteId(null), 1500);
     } catch {
-      setIsCopied(false);
+      setCopiedInviteId(null);
+    }
+  }
+
+  async function handleRegenerateInvite(invite: InviteTokenResponse) {
+    if (!token || !interview) {
+      return;
+    }
+    setBusyInviteId(invite.id);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const replacement = await regenerateInterviewInvite(token, interview.id, invite.id, { expires_in_days: inviteExpiryDays });
+      setInvites((currentInvites) => [
+        replacement,
+        ...currentInvites.map((item) =>
+          item.id === invite.id ? { ...item, status: "revoked" as const, revoked_at: new Date().toISOString() } : item,
+        ),
+      ]);
+      setSuccessMessage("Invite regenerated. The old link has been revoked.");
+    } catch (requestError: unknown) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to regenerate invite.";
+      setError(message);
+    } finally {
+      setBusyInviteId(null);
+    }
+  }
+
+  async function handleRevokeInvite(invite: InviteTokenResponse) {
+    if (!token || !interview) {
+      return;
+    }
+    setBusyInviteId(invite.id);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const revoked = await revokeInterviewInvite(token, interview.id, invite.id);
+      setInvites((currentInvites) => currentInvites.map((item) => (item.id === invite.id ? revoked : item)));
+      setSuccessMessage("Invite revoked.");
+    } catch (requestError: unknown) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to revoke invite.";
+      setError(message);
+    } finally {
+      setBusyInviteId(null);
     }
   }
 
@@ -309,15 +437,43 @@ function InterviewDetailContent() {
                   </p>
                 </div>
 
-                <div className="grid w-full gap-3 xl:w-96">
+                <div className="grid w-full gap-3 xl:w-[28rem]">
+                  <Input
+                    id="candidate_invite_name"
+                    label="Candidate name"
+                    onChange={(event) => setInviteName(event.target.value)}
+                    placeholder="Optional"
+                    type="text"
+                    value={inviteName}
+                  />
                   <Input
                     id="candidate_invite_email"
                     label="Candidate invite email"
                     onChange={(event) => setInviteEmail(event.target.value)}
-                    placeholder="candidate@example.com"
+                    placeholder="Optional for generic links"
                     type="email"
                     value={inviteEmail}
                   />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Input
+                      id="candidate_invite_expiry"
+                      label="Expires in days"
+                      max={60}
+                      min={1}
+                      onChange={(event) => setInviteExpiryDays(Number(event.target.value) || DEFAULT_INVITE_DAYS)}
+                      type="number"
+                      value={inviteExpiryDays}
+                    />
+                    <Input
+                      id="candidate_invite_count"
+                      label="Number of links"
+                      max={25}
+                      min={1}
+                      onChange={(event) => setInviteCount(Number(event.target.value) || DEFAULT_INVITE_COUNT)}
+                      type="number"
+                      value={inviteCount}
+                    />
+                  </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
                       className="flex-1"
@@ -328,26 +484,62 @@ function InterviewDetailContent() {
                     >
                       {isCreatingInvite ? "Creating invite..." : "Create invite"}
                     </Button>
-                    <Button
-                      className="flex-1"
-                      disabled={!inviteLink}
-                      onClick={() => void handleCopyInvite()}
-                      type="button"
-                      variant="ghost"
-                    >
-                      {isCopied ? "Copied" : "Copy link"}
-                    </Button>
                   </div>
-                  {inviteLink ? (
-                    <p className="break-all rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-cyan-200">
-                      {inviteLink}
-                    </p>
-                  ) : null}
                   {!interview.scenario ? (
                     <p className="text-xs text-slate-500">Generate the scenario before creating an invite.</p>
-                  ) : null}
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Leave email blank to create generic single-use links for candidates in this organization.
+                    </p>
+                  )}
                 </div>
               </div>
+            </section>
+
+            <section className="rounded-md border border-slate-800 bg-slate-900/70">
+              <div className="flex flex-col gap-2 border-b border-slate-800 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">Invite links</h2>
+                  <p className="mt-1 text-sm text-slate-400">Persistent candidate links with status, expiry, and regeneration controls.</p>
+                </div>
+                <span className="text-xs uppercase tracking-wide text-slate-500">{invites.length} invites</span>
+              </div>
+              {invites.length === 0 ? (
+                <div className="p-5">
+                  <EmptyState
+                    description="Create a candidate-specific or generic invite. Existing links will remain visible here when you reopen the interview."
+                    title="No invites yet"
+                  />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
+                    <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-5 py-3 font-medium">Candidate</th>
+                        <th className="px-5 py-3 font-medium">Status</th>
+                        <th className="px-5 py-3 font-medium">Expires</th>
+                        <th className="px-5 py-3 font-medium">Used</th>
+                        <th className="px-5 py-3 font-medium">Invite URL</th>
+                        <th className="px-5 py-3 font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {invites.map((invite) => (
+                        <InviteRow
+                          invite={invite}
+                          isBusy={busyInviteId === invite.id}
+                          isCopied={copiedInviteId === invite.id}
+                          key={invite.id}
+                          onCopy={(item) => void handleCopyInvite(item)}
+                          onRegenerate={(item) => void handleRegenerateInvite(item)}
+                          onRevoke={(item) => void handleRevokeInvite(item)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
 
             <section className="rounded-md border border-slate-800 bg-slate-900/70">
@@ -371,7 +563,9 @@ function InterviewDetailContent() {
                     <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500">
                       <tr>
                         <th className="px-5 py-3 font-medium">Candidate</th>
-                        <th className="px-5 py-3 font-medium">Status</th>
+                        <th className="px-5 py-3 font-medium">Session</th>
+                        <th className="px-5 py-3 font-medium">Invite</th>
+                        <th className="px-5 py-3 font-medium">Started</th>
                         <th className="px-5 py-3 font-medium">Submitted</th>
                         <th className="px-5 py-3 font-medium">Validation</th>
                         <th className="px-5 py-3 font-medium">Result</th>

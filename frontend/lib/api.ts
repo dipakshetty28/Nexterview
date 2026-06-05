@@ -7,6 +7,7 @@ import type {
   Interview,
   InterviewCreateInput,
   InterviewSubmissionResult,
+  InviteCreateResponse,
   InviteTokenResponse,
   PublicInvite,
   ResultsDashboardItem,
@@ -156,12 +157,36 @@ export function generateScenario(token: string, interviewId: string): Promise<Sc
 export function createCandidateInvite(
   token: string,
   interviewId: string,
-  input: { candidate_email: string },
-): Promise<InviteTokenResponse> {
-  return apiRequest<InviteTokenResponse>(`/api/interviews/${interviewId}/invite`, {
+  input: { candidate_email?: string | null; candidate_name?: string | null; expires_in_days?: number; invite_count?: number },
+): Promise<InviteCreateResponse> {
+  return apiRequest<InviteCreateResponse>(`/api/interviews/${interviewId}/invite`, {
     method: "POST",
     token,
     body: input,
+  });
+}
+
+export function getInterviewInvites(token: string, interviewId: string): Promise<InviteTokenResponse[]> {
+  return apiRequest<InviteTokenResponse[]>(`/api/interviews/${interviewId}/invites`, { token });
+}
+
+export function regenerateInterviewInvite(
+  token: string,
+  interviewId: string,
+  inviteId: string,
+  input: { expires_in_days?: number },
+): Promise<InviteTokenResponse> {
+  return apiRequest<InviteTokenResponse>(`/api/interviews/${interviewId}/invites/${inviteId}/regenerate`, {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export function revokeInterviewInvite(token: string, interviewId: string, inviteId: string): Promise<InviteTokenResponse> {
+  return apiRequest<InviteTokenResponse>(`/api/interviews/${interviewId}/invites/${inviteId}/revoke`, {
+    method: "POST",
+    token,
   });
 }
 

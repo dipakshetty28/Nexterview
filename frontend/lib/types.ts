@@ -183,7 +183,12 @@ export type InterviewSubmissionResult = {
   candidate_email: string;
   candidate_name: string;
   status: "invited" | "started" | "submitted" | "ready_for_review" | "review_in_progress" | "reviewed" | "review_failed";
+  invite_status: "active" | "used" | "expired" | "revoked" | null;
+  invite_expires_at: string | null;
+  invite_used_at: string | null;
+  started_at: string | null;
   submitted_at: string | null;
+  reviewed_at: string | null;
   submission_id: string | null;
   test_output: string | null;
   notes: string | null;
@@ -363,11 +368,23 @@ export type InterviewCreateInput = {
 export type InviteTokenResponse = {
   id: string;
   interview_id: string;
-  session_id: string;
-  candidate_email: string;
-  invite_url: string;
+  session_id: string | null;
+  candidate_id: string | null;
+  candidate_email: string | null;
+  candidate_name: string | null;
+  invite_url: string | null;
+  status: "active" | "used" | "expired" | "revoked";
   expires_at: string;
+  created_at: string;
   used_at: string | null;
+  revoked_at: string | null;
+  regenerated_from_invite_id: string | null;
+  created_by_user_id: string | null;
+  session_status: string | null;
+};
+
+export type InviteCreateResponse = InviteTokenResponse & {
+  invites: InviteTokenResponse[];
 };
 
 export type PublicInvite = {
@@ -382,9 +399,10 @@ export type PublicInvite = {
     allowed_ai_mode: string;
     scenario_title: string | null;
   };
-  candidate_email: string;
+  candidate_email: string | null;
+  candidate_name: string | null;
   expires_at: string;
-  status: "invited" | "started" | "submitted" | "ready_for_review" | "review_in_progress" | "reviewed" | "review_failed";
+  status: "active" | "used" | "expired" | "revoked";
 };
 
 export type CandidateSession = {

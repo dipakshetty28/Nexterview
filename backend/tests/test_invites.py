@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import pytest
@@ -323,14 +324,16 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert invite_response.status_code == 201
     invite = invite_response.json()
     assert invite["candidate_email"] == "candidate@example.com"
-    assert invite["session_id"]
+    assert invite["status"] == "active"
+    assert invite["session_id"] is None
+    assert len(invite["invites"]) == 1
     raw_invite_token = urlparse(invite["invite_url"]).path.rsplit("/", 1)[-1]
 
     public_response = client.get(f"/api/invite/{raw_invite_token}")
     assert public_response.status_code == 200
     public_invite = public_response.json()
     assert public_invite["candidate_email"] == "candidate@example.com"
-    assert public_invite["status"] == "invited"
+    assert public_invite["status"] == "active"
     assert public_invite["interview"]["scenario_title"]
 
     unauthenticated_start = client.post(f"/api/invite/{raw_invite_token}/start")
@@ -382,6 +385,16 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
         "README.md",
     }
     assert "tests/test_orders_hidden.py" not in {project_file["path"] for project_file in candidate_files}
+
+    used_invites_response = client.get(
+        f"/api/interviews/{interview_id}/invites",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert used_invites_response.status_code == 200
+    used_invite = used_invites_response.json()[0]
+    assert used_invite["status"] == "used"
+    assert used_invite["session_id"] == session["id"]
+    assert used_invite["used_at"] is not None
 
     session_response = client.get(
         f"/api/sessions/{session['id']}",
@@ -573,7 +586,8 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     )
     assert reinvite_response.status_code == 201
     reinvite = reinvite_response.json()
-    assert reinvite["session_id"] == session["id"]
+    assert reinvite["session_id"] is None
+    assert reinvite["status"] == "active"
     assert reinvite["invite_url"] != invite["invite_url"]
 
     submit_response = client.post(
@@ -643,6 +657,200 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert ai_messages[0].message_metadata["included_context_size"] == 1234
     assert "idempotency key" in ai_messages[1].content
     assert ai_messages[1].message_metadata["suggested_files"][0]["path"] == "app/main.py"
+
+
+def test_interviewer_can_create_and_reopen_multiple_invites(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    _create_candidate(client, email="one@example.com", full_name="Candidate One")
+    _create_candidate(client, email="two@example.com", full_name="Candidate Two")
+    interview_id = _create_ready_interview(client, token=admin_token)
+
+    first_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_name": "Candidate One", "candidate_email": "one@example.com", "expires_in_days": 7},
+    )
+    second_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_name": "Candidate Two", "candidate_email": "two@example.com", "expires_in_days": 7},
+    )
+    bulk_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"invite_count": 2, "expires_in_days": 3},
+    )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    assert bulk_response.status_code == 201
+    assert len(bulk_response.json()["invites"]) == 2
+
+    invites_response = client.get(
+        f"/api/interviews/{interview_id}/invites",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert invites_response.status_code == 200
+    invites = invites_response.json()
+    assert len(invites) == 4
+    assert {invite["status"] for invite in invites} == {"active"}
+    assert all(invite["invite_url"] for invite in invites)
+    assert all(invite["session_id"] is None for invite in invites)
+
+    reopen_response = client.get(
+        f"/api/interviews/{interview_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert reopen_response.status_code == 200
+    reloaded_invites_response = client.get(
+        f"/api/interviews/{interview_id}/invites",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert reloaded_invites_response.status_code == 200
+    assert {invite["invite_url"] for invite in reloaded_invites_response.json()} == {
+        invite["invite_url"] for invite in invites
+    }
+
+
+def test_regenerate_invite_revokes_old_token(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    interview_id = _create_ready_interview(client, token=admin_token)
+    invite_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "candidate@example.com"},
+    )
+    assert invite_response.status_code == 201
+    invite = invite_response.json()
+    old_token = urlparse(invite["invite_url"]).path.rsplit("/", 1)[-1]
+
+    regenerate_response = client.post(
+        f"/api/interviews/{interview_id}/invites/{invite['id']}/regenerate",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"expires_in_days": 21},
+    )
+    assert regenerate_response.status_code == 201
+    replacement = regenerate_response.json()
+    assert replacement["id"] != invite["id"]
+    assert replacement["invite_url"] != invite["invite_url"]
+    assert replacement["regenerated_from_invite_id"] == invite["id"]
+
+    old_public_response = client.get(f"/api/invite/{old_token}")
+    assert old_public_response.status_code == 404
+    list_response = client.get(
+        f"/api/interviews/{interview_id}/invites",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    statuses_by_id = {item["id"]: item["status"] for item in list_response.json()}
+    assert statuses_by_id[invite["id"]] == "revoked"
+    assert statuses_by_id[replacement["id"]] == "active"
+
+
+def test_revoked_and_expired_invites_cannot_be_used(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    _create_candidate(client, email="candidate@example.com", full_name="Candidate User")
+    interview_id = _create_ready_interview(client, token=admin_token)
+
+    revoked_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "candidate@example.com"},
+    )
+    expired_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "candidate@example.com"},
+    )
+    revoked_invite = revoked_response.json()
+    expired_invite = expired_response.json()
+    revoked_token = urlparse(revoked_invite["invite_url"]).path.rsplit("/", 1)[-1]
+    expired_token = urlparse(expired_invite["invite_url"]).path.rsplit("/", 1)[-1]
+
+    revoke_response = client.post(
+        f"/api/interviews/{interview_id}/invites/{revoked_invite['id']}/revoke",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert revoke_response.status_code == 200
+    assert revoke_response.json()["status"] == "revoked"
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        invite = db.execute(select(InviteToken).where(InviteToken.id == expired_invite["id"])).scalar_one()
+        invite.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+    finally:
+        db.close()
+
+    candidate_login = client.post(
+        "/api/auth/login",
+        json={"email": "candidate@example.com", "password": "StrongPass123!"},
+    )
+    candidate_token = candidate_login.json()["access_token"]
+    assert client.get(f"/api/invite/{revoked_token}").status_code == 404
+    assert client.post(
+        f"/api/invite/{revoked_token}/start",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    ).status_code == 404
+    assert client.get(f"/api/invite/{expired_token}").status_code == 410
+    assert client.post(
+        f"/api/invite/{expired_token}/start",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    ).status_code == 410
+
+
+def test_candidate_and_interviewer_invite_access_is_org_scoped(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    _create_candidate(client, email="right@example.com", full_name="Right Candidate")
+    _create_candidate(client, email="wrong@example.com", full_name="Wrong Candidate")
+    interview_id = _create_ready_interview(client, token=admin_token)
+    invite_response = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "right@example.com"},
+    )
+    raw_token = urlparse(invite_response.json()["invite_url"]).path.rsplit("/", 1)[-1]
+    wrong_login = client.post(
+        "/api/auth/login",
+        json={"email": "wrong@example.com", "password": "StrongPass123!"},
+    )
+    wrong_start = client.post(
+        f"/api/invite/{raw_token}/start",
+        headers={"Authorization": f"Bearer {wrong_login.json()['access_token']}"},
+    )
+    assert wrong_start.status_code == 403
+
+    second_admin_response = client.post(
+        "/api/auth/register",
+        json={
+            "email": "other-owner@example.com",
+            "password": "StrongPass123!",
+            "full_name": "Other Owner",
+            "organization_name": "Other Org",
+        },
+    )
+    assert second_admin_response.status_code == 201
+    cross_org_list = client.get(
+        f"/api/interviews/{interview_id}/invites",
+        headers={"Authorization": f"Bearer {second_admin_response.json()['access_token']}"},
+    )
+    assert cross_org_list.status_code == 404
 
 
 def test_candidate_workspace_edits_snapshots_and_submits_files(
@@ -1313,7 +1521,7 @@ def test_review_failure_marks_submission_failed_without_fake_pass(
     assert stored_submission.status == "review_failed"
 
 
-def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_invite_can_be_created_before_candidate_account_exists(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "")
     admin_token = _register_admin(client)
     interview_id = _create_ready_interview(client, token=admin_token)
@@ -1324,8 +1532,11 @@ def test_invite_rejects_unknown_candidate(client: TestClient, monkeypatch: pytes
         json={"candidate_email": "missing@example.com"},
     )
 
-    assert response.status_code == 404
-    assert response.json()["detail"] == "No active candidate account with that email exists in this organization."
+    assert response.status_code == 201
+    invite = response.json()
+    assert invite["candidate_email"] == "missing@example.com"
+    assert invite["session_id"] is None
+    assert invite["status"] == "active"
 
 
 def test_invite_rejects_submitted_session(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1340,6 +1551,18 @@ def test_invite_rejects_submitted_session(client: TestClient, monkeypatch: pytes
         json={"candidate_email": "candidate@example.com"},
     )
     assert invite_response.status_code == 201
+    raw_invite_token = urlparse(invite_response.json()["invite_url"]).path.rsplit("/", 1)[-1]
+    candidate_login = client.post(
+        "/api/auth/login",
+        json={"email": "candidate@example.com", "password": "StrongPass123!"},
+    )
+    assert candidate_login.status_code == 200
+    candidate_token = candidate_login.json()["access_token"]
+    start_response = client.post(
+        f"/api/invite/{raw_invite_token}/start",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert start_response.status_code == 200
 
     db_generator = app.dependency_overrides[get_db]()
     db = next(db_generator)
@@ -1355,6 +1578,12 @@ def test_invite_rejects_submitted_session(client: TestClient, monkeypatch: pytes
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"candidate_email": "candidate@example.com"},
     )
+    assert response.status_code == 201
+    next_raw_invite_token = urlparse(response.json()["invite_url"]).path.rsplit("/", 1)[-1]
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "This candidate already has a submitted or reviewed session for the interview."
+    start_again_response = client.post(
+        f"/api/invite/{next_raw_invite_token}/start",
+        headers={"Authorization": f"Bearer {candidate_token}"},
+    )
+    assert start_again_response.status_code == 409
+    assert start_again_response.json()["detail"] == "This interview session has already been submitted."
