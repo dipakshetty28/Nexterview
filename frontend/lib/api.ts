@@ -1,6 +1,7 @@
 import type {
   AuthResponse,
   AICopilotResponse,
+  CalibrationSession,
   CandidateWorkspace,
   CandidateSession,
   DashboardResponse,
@@ -131,6 +132,10 @@ export function getSessionResult(token: string, sessionId: string): Promise<Sess
 
 export function getResultsDashboard(token: string): Promise<ResultsDashboardItem[]> {
   return apiRequest<ResultsDashboardItem[]>("/api/results", { token });
+}
+
+export function getCalibrationSessions(token: string): Promise<CalibrationSession[]> {
+  return apiRequest<CalibrationSession[]>("/api/calibration", { token });
 }
 
 export function runSubmissionReview(token: string, submissionId: string): Promise<SubmissionReviewSummary> {

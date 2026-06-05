@@ -312,6 +312,54 @@ export type TestRunSummary = {
   created_at: string;
 };
 
+export type CalibrationTestResult = {
+  status: "passed" | "failed";
+  command: string;
+  passed_count: number;
+  failed_count: number;
+  summary: string;
+  output: string;
+};
+
+export type CalibrationTranscriptMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type CalibrationAgentReview = {
+  agent_type: string;
+  agent_label: string;
+  score: number;
+  recommendation: string;
+  summary: string;
+  strengths: string[];
+  weaknesses: string[];
+  evidence: string[];
+  risk_flags: string[];
+};
+
+export type CalibrationSession = {
+  id: string;
+  tier: "strong" | "average" | "weak";
+  candidate_name: string;
+  role_title: string;
+  scenario_title: string;
+  ai_mode: string;
+  status: string;
+  final_score: number;
+  recommendation: string;
+  review_summary: string;
+  expected_behavior: string[];
+  observed_behavior: string[];
+  differentiators: string[];
+  final_code_path: string;
+  final_code_language: string;
+  final_code: string;
+  test_result: CalibrationTestResult;
+  ai_transcript: CalibrationTranscriptMessage[];
+  agent_reviews: CalibrationAgentReview[];
+};
+
 export type SubmissionReviewSummary = {
   submission_id: string;
   session_id: string;

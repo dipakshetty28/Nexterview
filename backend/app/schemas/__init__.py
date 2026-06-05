@@ -1,4 +1,10 @@
 from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, TokenPayload, UserRead
+from app.schemas.calibration import (
+    CalibrationAgentReviewRead,
+    CalibrationSessionRead,
+    CalibrationTestResultRead,
+    CalibrationTranscriptMessageRead,
+)
 from app.schemas.invite import (
     AICopilotRequest,
     AICopilotResponse,
@@ -70,6 +76,10 @@ __all__ = [
     "CandidateWorkspaceFileUpdate",
     "CandidateWorkspaceProjectRead",
     "CandidateWorkspaceRead",
+    "CalibrationAgentReviewRead",
+    "CalibrationSessionRead",
+    "CalibrationTestResultRead",
+    "CalibrationTranscriptMessageRead",
     "CopilotStructuredResponse",
     "CopilotSuggestedFileRead",
     "FileDiffRead",
