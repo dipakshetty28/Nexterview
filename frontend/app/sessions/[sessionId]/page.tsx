@@ -360,11 +360,6 @@ function suggestedFilesForMessage(message: AIMessage): CopilotSuggestedFile[] {
   });
 }
 
-function confidenceForMessage(message: AIMessage): string | null {
-  const confidence = message.message_metadata?.confidence;
-  return typeof confidence === "string" ? confidence : null;
-}
-
 function MarkdownMessage({ content }: { content: string }) {
   return (
     <div className="grid gap-2 text-sm">
@@ -377,14 +372,12 @@ function ChatMessageBubble({
   role,
   content,
   suggestedFiles = [],
-  confidence = null,
   isPending = false,
   onOpenSuggestedFile,
 }: {
   role: "user" | "assistant";
   content: string;
   suggestedFiles?: CopilotSuggestedFile[];
-  confidence?: string | null;
   isPending?: boolean;
   onOpenSuggestedFile: (path: string) => void;
 }) {
@@ -419,7 +412,6 @@ function ChatMessageBubble({
               ))}
             </div>
           ) : null}
-          {confidence ? <p className="text-xs text-slate-500">Confidence: {confidence}</p> : null}
         </div>
       ) : (
         <p className="whitespace-pre-wrap leading-6">{sanitizeCandidateText(content)}</p>
@@ -438,7 +430,6 @@ function CopilotMessage({
   const isAssistant = message.role === "assistant";
   return (
     <ChatMessageBubble
-      confidence={isAssistant ? confidenceForMessage(message) : null}
       content={message.content}
       onOpenSuggestedFile={onOpenSuggestedFile}
       role={message.role}
@@ -452,7 +443,7 @@ function AiEmptyState() {
     <div className="rounded-md border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-300">
       <p className="font-medium text-slate-100">Ask for debugging help, code review, test ideas, or tradeoff analysis.</p>
       <p className="mt-2 text-slate-400">
-        AI assistance is allowed. Your validation, reasoning, and judgment are evaluated.
+        Task context, current code, and latest test result are included automatically.
       </p>
     </div>
   );
@@ -476,25 +467,6 @@ function AiErrorState({ onRetry, isRetrying }: { onRetry: () => void; isRetrying
       <Button className="mt-3 h-9 px-3" disabled={isRetrying} onClick={onRetry} type="button" variant="secondary">
         {isRetrying ? "Retrying..." : "Retry last prompt"}
       </Button>
-    </div>
-  );
-}
-
-function PromptQualityHints() {
-  const examples = [
-    "Here is the failing test and the code path I suspect...",
-    "Compare these two possible fixes and risks...",
-    "What edge cases should I test?",
-  ];
-
-  return (
-    <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/70 p-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stronger prompts include context</p>
-      <ul className="mt-2 grid gap-1.5 text-xs leading-5 text-slate-400">
-        {examples.map((example) => (
-          <li key={example}>{example}</li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -1331,17 +1303,6 @@ function CandidateSessionContent() {
     handleSelectFile(file);
   }
 
-  function handleAddSelectedFileContext() {
-    if (!selectedFile) {
-      return;
-    }
-    setCopilotQuestion((current) => {
-      const trimmed = current.trim();
-      const addition = `Use the currently open file ${selectedFile.path} as context.`;
-      return trimmed ? `${trimmed}\n\n${addition}` : addition;
-    });
-  }
-
   async function handleRunTests() {
     if (!token || !session) {
       return;
@@ -1710,7 +1671,10 @@ function CandidateSessionContent() {
                     />
                     <div className="flex min-h-0 flex-1 flex-col">
                       <div className="border-b border-slate-800 bg-slate-950/50 px-4 py-3 text-sm leading-6 text-slate-300">
-                        AI assistance is allowed. Your validation, reasoning, and judgment are evaluated.
+                        <p>AI assistance is allowed. Your validation and reasoning are evaluated.</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Task context, current code, and latest test result are included automatically.
+                        </p>
                       </div>
                       <div className="min-h-0 flex-1 overflow-auto p-4">
                         <div className="grid gap-3">
@@ -1762,21 +1726,12 @@ function CandidateSessionContent() {
                           placeholder="Ask for debugging help, test ideas, code review, or tradeoff analysis."
                           value={copilotQuestion}
                         />
-                        <PromptQualityHints />
-                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                          {selectedFile ? (
-                            <Button
-                              className="h-9"
-                              disabled={isAskingCopilot || isSubmitted}
-                              onClick={handleAddSelectedFileContext}
-                              type="button"
-                              variant="secondary"
-                            >
-                              Add file context
-                            </Button>
-                          ) : null}
+                        <p className="mt-2 text-xs text-slate-500">
+                          Enter sends. Shift+Enter adds a newline.
+                        </p>
+                        <div className="mt-3">
                           <Button
-                            className={cn("h-9", selectedFile ? "" : "sm:col-span-2")}
+                            className="h-9 w-full"
                             disabled={isAskingCopilot || isSubmitted || copilotQuestion.trim().length === 0}
                             onClick={() => void handleAskCopilot()}
                             type="button"

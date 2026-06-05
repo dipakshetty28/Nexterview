@@ -94,6 +94,42 @@ _READY_ENVIRONMENT_DOC = (
     "execute the visible checks, and summarize the root cause plus verification before submitting.\n"
 )
 
+COPILOT_UNAVAILABLE_MESSAGE = "AI assistant is temporarily unavailable. Continue solving manually or try again."
+
+_SENSITIVE_CONTEXT_PATTERNS = (
+    (
+        re.compile(
+            r"\b(OPENAI_API_KEY|GITHUB_TOKEN|GITHUB_PAT|JWT_SECRET|DATABASE_URL|REDIS_URL|PGPASSWORD)\s*=\s*[^\s]+",
+            re.IGNORECASE,
+        ),
+        r"\1=[redacted]",
+    ),
+    (re.compile(r"\b(postgresql|postgres|redis)://[^\s)]+", re.IGNORECASE), r"\1://[redacted]"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), "sk-[redacted]"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{16,}"), "gh_[redacted]"),
+    (re.compile(r"\bgpt-[A-Za-z0-9_.-]+", re.IGNORECASE), "[model]"),
+    (
+        re.compile(r"https://github\.com/[^\s)]+/(?:pull|tree|commit|actions|runs)/[^\s)]+", re.IGNORECASE),
+        "[repository output hidden]",
+    ),
+    (re.compile(r"Traceback \(most recent call last\):[\s\S]*?(?=\n\n|$)"), "[technical details hidden]"),
+    (re.compile(r'^File ".+", line \d+,.+$', re.MULTILINE), "[technical details hidden]"),
+)
+
+_RESTRICTED_COPILOT_REQUEST_RE = re.compile(
+    r"\b("
+    r"hidden\s+(?:rubric|evaluation|criteria|points)|"
+    r"interviewer\s+rubric|"
+    r"expected\s+solution|"
+    r"answer\s+key|"
+    r"system\s+prompt|"
+    r"scoring\s+(?:criteria|weights|rubric)|"
+    r"api\s+key|"
+    r"github\s+token"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 def get_candidate_copilot() -> CandidateCopilot:
     return CandidateCopilot()
@@ -376,6 +412,75 @@ def _create_event(
     return event
 
 
+def _redact_candidate_context_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    redacted = value
+    for pattern, replacement in _SENSITIVE_CONTEXT_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
+
+
+def _safe_text(value: str) -> str:
+    return _redact_candidate_context_text(value) or ""
+
+
+def _safe_text_list(values: list[str]) -> list[str]:
+    return [_safe_text(value) for value in values if isinstance(value, str)]
+
+
+def _latest_test_output_for_copilot(
+    db: Session,
+    *,
+    session: InterviewSession,
+    request_output: str | None,
+) -> tuple[str | None, str | None]:
+    if request_output:
+        return _redact_candidate_context_text(request_output), "request"
+
+    latest_test_run = db.execute(
+        select(TestRun)
+        .where(TestRun.session_id == session.id)
+        .order_by(TestRun.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if latest_test_run is None:
+        return None, None
+
+    parts = [
+        f"Status: {latest_test_run.status}",
+        f"Command: {latest_test_run.command}",
+        (
+            "Results: "
+            f"{latest_test_run.passed_count} passed, "
+            f"{latest_test_run.failed_count} failed, "
+            f"{latest_test_run.total_count} total"
+        ),
+    ]
+    if latest_test_run.failure_summary:
+        parts.append(f"Failure summary: {latest_test_run.failure_summary}")
+    if latest_test_run.stdout:
+        parts.append(f"stdout:\n{latest_test_run.stdout}")
+    if latest_test_run.stderr:
+        parts.append(f"stderr:\n{latest_test_run.stderr}")
+    return _redact_candidate_context_text("\n".join(parts)), "latest_saved_test_run"
+
+
+def _is_restricted_copilot_request(question: str) -> bool:
+    return _RESTRICTED_COPILOT_REQUEST_RE.search(question) is not None
+
+
+def _restricted_copilot_reply(session: InterviewSession) -> str:
+    scenario = session.interview.scenario
+    title = scenario.title if scenario else "this task"
+    return (
+        "I cannot provide hidden interviewer materials, answer keys, system prompts, secrets, or scoring details. "
+        f"I can still help you solve **{_safe_text(title)}** using the visible task brief, current code, latest test "
+        "result, and your notes. Share the specific behavior you want to reason through, or ask for a review of the "
+        "current implementation and validation plan."
+    )
+
+
 def _submitted_files_from_session_snapshots(db: Session, *, session: InterviewSession) -> list[dict[str, object]]:
     snapshots = db.execute(
         select(SessionFileSnapshot)
@@ -572,7 +677,13 @@ def _candidate_message_metadata(message: AIMessage) -> dict[str, object]:
     if message.role == AIMessageRole.USER:
         return {
             key: metadata[key]
-            for key in ("current_file_path", "latest_test_output_included", "notes_included")
+            for key in (
+                "current_file_path",
+                "current_code_context_included",
+                "latest_test_output_included",
+                "notes_included",
+                "automatic_context_included",
+            )
             if key in metadata
         }
     return {
@@ -643,11 +754,11 @@ def _primary_code_from_snapshots(db: Session, *, session: InterviewSession) -> s
 def _workspace_code_context(db: Session, *, session: InterviewSession, fallback_code: str) -> str:
     snapshots = _visible_session_snapshots(db, session=session)
     if not snapshots:
-        return fallback_code
+        return _safe_text(fallback_code)
 
     parts: list[str] = []
     for snapshot in snapshots:
-        parts.append(f"// File: {snapshot.path}\n{snapshot.current_content}")
+        parts.append(f"// File: {snapshot.path}\n{_safe_text(snapshot.current_content)}")
     return "\n\n".join(parts)
 
 
@@ -667,7 +778,7 @@ def _copilot_context(
             "path": snapshot.path,
             "language": snapshot.language,
             "file_type": snapshot.project_file.file_type,
-            "content": snapshot.current_content,
+            "content": _safe_text(snapshot.current_content),
         }
         for snapshot in snapshots
     ]
@@ -677,8 +788,20 @@ def _copilot_context(
         current_file_content = payload.code or None
     if current_file_path is None and current_file_content:
         current_file_path = scenario.project.entrypoint if scenario.project else "starter-code"
+    latest_test_output, latest_test_output_source = _latest_test_output_for_copilot(
+        db,
+        session=session,
+        request_output=payload.latest_test_output,
+    )
+    candidate_notes = payload.notes if payload.notes is not None else session.notes
+    safe_current_file_content = _redact_candidate_context_text(current_file_content)
+    safe_candidate_notes = _redact_candidate_context_text(candidate_notes)
+    ai_mode = scenario.ai_mode or session.interview.allowed_ai_mode
+    current_code_context_included = bool(visible_files or safe_current_file_content)
+    latest_test_context_included = bool(latest_test_output)
 
     return {
+        "ai_mode": ai_mode,
         "interview": {
             "role_title": session.interview.role_title,
             "seniority": session.interview.seniority,
@@ -688,25 +811,35 @@ def _copilot_context(
             "duration_minutes": session.interview.duration_minutes,
         },
         "scenario": {
-            "title": scenario.title,
-            "business_context": scenario.business_context,
-            "candidate_task_summary": scenario.candidate_task_summary,
-            "technical_requirements": scenario.technical_requirements,
-            "expected_behavior": scenario.expected_behavior,
-            "logs_or_bug_report": scenario.logs_or_bug_report,
-            "bug_description": scenario.bug_description,
-            "feature_request": scenario.feature_request,
-            "validation_instructions": _candidate_validation_instructions(scenario.validation_instructions),
-            "candidate_instructions": scenario.candidate_instructions,
+            "title": _safe_text(scenario.title),
+            "business_context": _safe_text(scenario.business_context),
+            "candidate_task_summary": _safe_text(scenario.candidate_task_summary),
+            "candidate_instructions": _safe_text(scenario.candidate_instructions),
+            "visible_requirements": _safe_text_list(scenario.visible_requirements or scenario.technical_requirements),
+            "technical_requirements": _safe_text_list(scenario.technical_requirements),
+            "expected_behavior": _safe_text_list(scenario.expected_behavior),
+            "logs_or_bug_report": _safe_text(scenario.logs_or_bug_report),
+            "bug_description": _safe_text(scenario.bug_description),
+            "feature_request": _safe_text(scenario.feature_request),
+            "validation_instructions": _safe_text(_candidate_validation_instructions(scenario.validation_instructions)),
+            "constraints": _safe_text_list(scenario.constraints),
+            "language": _safe_text(scenario.language),
+            "framework": _safe_text(scenario.framework),
+            "ai_mode": ai_mode,
         },
         "visible_project_file_tree": [file_payload["path"] for file_payload in visible_files],
         "current_file": {
             "path": current_file_path,
-            "content": current_file_content,
+            "content": safe_current_file_content,
         },
         "latest_saved_files": visible_files,
-        "latest_test_output": payload.latest_test_output,
-        "candidate_notes": payload.notes if payload.notes is not None else session.notes,
+        "latest_test_output": latest_test_output,
+        "latest_test_output_source": latest_test_output_source,
+        "candidate_notes": safe_candidate_notes,
+        "previous_ai_messages_included": True,
+        "current_code_context_included": current_code_context_included,
+        "latest_test_context_included": latest_test_context_included,
+        "restricted_material_requested": _is_restricted_copilot_request(payload.question),
     }
 
 
@@ -1398,6 +1531,9 @@ def ask_candidate_copilot(
     copilot_context = _copilot_context(db, session=session, payload=payload)
     current_file_path = _current_file_path_from_context(copilot_context)
     ai_mode = session.interview.allowed_ai_mode
+    current_code_context_included = bool(copilot_context.get("current_code_context_included"))
+    latest_test_context_included = bool(copilot_context.get("latest_test_context_included"))
+    notes_included = bool(copilot_context.get("candidate_notes"))
 
     user_message = AIMessage(
         organization_id=session.organization_id,
@@ -1411,18 +1547,27 @@ def ask_candidate_copilot(
         message_metadata={
             "candidate_prompt": payload.question,
             "current_file_path": current_file_path,
-            "latest_test_output_included": bool(payload.latest_test_output),
-            "notes_included": bool(payload.notes or session.notes),
+            "current_code_context_included": current_code_context_included,
+            "latest_test_output_included": latest_test_context_included,
+            "notes_included": notes_included,
+            "automatic_context_included": True,
         },
     )
     db.add(user_message)
 
-    result = copilot.generate_reply(
-        session=session,
-        question=payload.question,
-        context=copilot_context,
-        previous_messages=previous_messages,
-    )
+    try:
+        result = copilot.generate_reply(
+            session=session,
+            question=payload.question,
+            context=copilot_context,
+            previous_messages=previous_messages,
+        )
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=COPILOT_UNAVAILABLE_MESSAGE) from exc
+    assistant_content = _safe_text(result.content)
+    if _is_restricted_copilot_request(payload.question):
+        assistant_content = _restricted_copilot_reply(session)
     user_message.message_metadata = {
         **user_message.message_metadata,
         "included_context_size": result.included_context_size,
@@ -1432,7 +1577,7 @@ def ask_candidate_copilot(
         session_id=session.id,
         candidate_id=session.candidate_id,
         role=AIMessageRole.ASSISTANT,
-        content=result.content,
+        content=assistant_content,
         code_snapshot=None,
         ai_mode=ai_mode,
         ai_model=result.model,
@@ -1451,10 +1596,16 @@ def ask_candidate_copilot(
         event_type=TelemetryEventType.AI_PROMPT_SENT,
         payload={
             "candidate_prompt": payload.question,
+            "prompt_text": payload.question,
             "included_context_size": result.included_context_size,
             "current_file_path": current_file_path,
             "ai_mode": ai_mode,
+            "mode": ai_mode,
             "response_confidence": result.confidence,
+            "response_length": len(assistant_content),
+            "current_code_context_included": current_code_context_included,
+            "latest_test_context_included": latest_test_context_included,
+            "automatic_context_included": True,
             "timestamp": now.isoformat(),
             "question_length": len(payload.question),
             "code_snapshot_length": len(code_snapshot),
@@ -1476,7 +1627,7 @@ def ask_candidate_copilot(
         user_message=_candidate_ai_message_response(user_message),
         assistant_message=_candidate_ai_message_response(assistant_message),
         response=CopilotStructuredResponse(
-            answer=result.content,
+            answer=assistant_content,
             suggested_files=result.suggested_files,
             risk_flags=result.risk_flags,
             confidence=result.confidence,
