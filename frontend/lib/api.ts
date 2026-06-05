@@ -159,6 +159,13 @@ export function generateScenario(token: string, interviewId: string): Promise<Sc
   });
 }
 
+export function approveScenario(token: string, interviewId: string): Promise<Scenario> {
+  return apiRequest<Scenario>(`/api/interviews/${interviewId}/scenario/approve`, {
+    method: "POST",
+    token,
+  });
+}
+
 export function createCandidateInvite(
   token: string,
   interviewId: string,

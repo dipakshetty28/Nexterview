@@ -433,6 +433,7 @@ def test_create_interview_and_generate_scenario_with_mocked_ai_service(client: T
     assert scenario["title"] == "Debug duplicate webhook delivery handling"
     assert scenario["generation_source"] == "openai"
     assert scenario["ai_model"] == "test-model"
+    assert scenario["status"] == "generated"
     assert scenario["role_title"] == "Backend Engineer"
     assert scenario["language"] == "python"
     assert scenario["framework"] == "FastAPI"
@@ -445,8 +446,19 @@ def test_create_interview_and_generate_scenario_with_mocked_ai_service(client: T
     detail_response = client.get(f"/api/interviews/{interview['id']}", headers=headers)
     assert detail_response.status_code == 200
     detail = detail_response.json()
-    assert detail["status"] == "READY"
+    assert detail["status"] == "SCENARIO_GENERATED"
     assert detail["scenario"]["title"] == "Debug duplicate webhook delivery handling"
+    assert detail["scenario"]["status"] == "generated"
+
+    approve_response = client.post(f"/api/interviews/{interview['id']}/scenario/approve", headers=headers)
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == "approved"
+
+    approved_detail_response = client.get(f"/api/interviews/{interview['id']}", headers=headers)
+    assert approved_detail_response.status_code == 200
+    approved_detail = approved_detail_response.json()
+    assert approved_detail["status"] == "READY"
+    assert approved_detail["scenario"]["status"] == "approved"
 
     list_response = client.get("/api/interviews", headers=headers)
     assert list_response.status_code == 200

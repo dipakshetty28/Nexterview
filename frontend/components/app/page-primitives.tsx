@@ -15,7 +15,7 @@ const badgeTones: Record<Tone, string> = {
 
 export function statusTone(status: string | null | undefined): Tone {
   const normalized = (status ?? "").toLowerCase();
-  if (["ready", "active", "reviewed", "passed", "complete", "completed", "ready_for_review"].includes(normalized)) {
+  if (["ready", "active", "reviewed", "passed", "complete", "completed", "ready_for_review", "approved"].includes(normalized)) {
     return "success";
   }
   if (["submitted", "pending", "started", "draft", "review_in_progress", "used"].includes(normalized)) {
@@ -24,7 +24,7 @@ export function statusTone(status: string | null | undefined): Tone {
   if (["failed", "error", "deleted", "rejected", "timeout", "tests_failed", "review_failed", "expired", "revoked"].includes(normalized)) {
     return "danger";
   }
-  if (["invited", "generated", "running"].includes(normalized)) {
+  if (["invited", "generated", "scenario_generated", "running"].includes(normalized)) {
     return "info";
   }
   return "neutral";

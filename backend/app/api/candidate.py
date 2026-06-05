@@ -22,6 +22,7 @@ from app.models.interview import (
     InviteToken,
     ProjectFile,
     Scenario,
+    ScenarioStatus,
     ScenarioProject,
     SessionFileSnapshot,
     Submission,
@@ -224,6 +225,7 @@ def _get_or_create_invite_session(db: Session, *, invite: InviteToken, current_u
 
 def _public_invite_response(invite: InviteToken) -> PublicInviteRead:
     interview = invite.interview
+    scenario_status = interview.scenario.status if interview.scenario else ScenarioStatus.DRAFT.value
     return PublicInviteRead(
         interview=InviteInterviewRead(
             id=interview.id,
@@ -235,6 +237,8 @@ def _public_invite_response(invite: InviteToken) -> PublicInviteRead:
             duration_minutes=interview.duration_minutes,
             allowed_ai_mode=interview.allowed_ai_mode,
             scenario_title=interview.scenario.title if interview.scenario else None,
+            scenario_status=scenario_status,
+            is_ready=interview.scenario is not None and scenario_status == ScenarioStatus.APPROVED.value,
         ),
         candidate_email=invite.candidate_email,
         candidate_name=invite.candidate_name,
@@ -354,6 +358,24 @@ def _ensure_scenario_ready(session: InterviewSession) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Interview scenario has not been generated yet.",
+        )
+    if session.interview.scenario.status != ScenarioStatus.APPROVED.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Interview is not ready yet. The scenario is waiting for interviewer approval.",
+        )
+
+
+def _ensure_invite_scenario_ready(invite: InviteToken) -> None:
+    if invite.interview.scenario is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Interview scenario has not been generated yet.",
+        )
+    if invite.interview.scenario.status != ScenarioStatus.APPROVED.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Interview is not ready yet. The scenario is waiting for interviewer approval.",
         )
 
 
@@ -1127,11 +1149,7 @@ def start_session_from_invite(
         )
     if not _candidate_belongs_to_invite_org(db, invite=invite, current_user=current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This invite belongs to a different organization.")
-    if invite.interview.scenario is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Interview scenario has not been generated yet.",
-        )
+    _ensure_invite_scenario_ready(invite)
     session = _get_or_create_invite_session(db, invite=invite, current_user=current_user)
     if session.status in {
         InterviewSessionStatus.SUBMITTED,

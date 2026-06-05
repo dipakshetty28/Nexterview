@@ -23,6 +23,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `DELETE /api/interviews/{id}`
   - `POST /api/interviews/{id}/invite`
   - `POST /api/interviews/{id}/generate-scenario`
+  - `POST /api/interviews/{id}/scenario/approve`
 - Internal repo-review endpoints for `ADMIN` and `INTERVIEWER` users:
   - `POST /api/submissions/{id}/review`
   - `GET /api/submissions/{id}/reviews`
@@ -45,7 +46,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Role-aware executable scenario generation with a seed catalog of failing starter projects, visible tests, private expected solution files, validation metadata, and interviewer-only rubric fields
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, interviewer management route, interviewer results dashboard with Recharts score/status visualizations, interviewer calibration page, invite page, repo submission result page, and a resizable Monaco-powered candidate IDE workspace with task, editor, AI copilot, file tree, output, required final explanation, snapshot autosave, pass/fail run output, and final submit confirmation
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, interviewer results dashboard with Recharts score/status visualizations, interviewer calibration page, scenario preview/approval flow, invite page, repo submission result page, and a resizable Monaco-powered candidate IDE workspace with task, editor, AI copilot, file tree, output, required final explanation, snapshot autosave, pass/fail run output, and final submit confirmation
 - Optional GitHub publishing that creates a starter branch from the configured default branch when a scenario is generated, then creates a candidate-specific submission branch and pull request against that starter branch so reviewers see only candidate changes
 - Structured AI copilot responses with markdown answers, suggested file chips, confidence, risk flags, and telemetry for later prompting-skill analytics
 - Repo-aware multi-agent review that evaluates original project files, submitted files, generated diffs, AI transcript, telemetry, test outputs, candidate notes, and GitHub branch/PR links while allowing internal-only rubric context
@@ -285,7 +286,16 @@ The response includes:
 
 The AI generation response must be strict JSON shaped as `{ "scenario": ..., "project": ..., "files": [...] }`. The backend validates that payload with Pydantic, requires 5 to 12 files, requires a JSON seed data file, requires a test or validation file, and requires `README.md` or `TASK.md`. Supported generation targets are React + Next.js, Python + FastAPI, and Node.js + Express; unknown stacks fall back to a generic TypeScript/Node prompt.
 
-The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Generated repo projects are stored as `scenario_projects` and `project_files`. If GitHub publishing is configured, scenario generation also creates a starter branch from `GITHUB_DEFAULT_BRANCH` and stores `starter_branch_name`, `starter_commit_sha`, `starter_repository_url`, `starter_push_status`, and `starter_push_error` on `scenario_projects`. Scenario generation still succeeds when GitHub is not configured or publishing fails. When a candidate starts an interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a deterministic FastAPI orders project with an intentional quantity-calculation bug and a status-filter feature request.
+The generated scenario is stored in PostgreSQL and linked one-to-one with the interview. Scenario status moves to `generated`, and the interview is not candidate-ready until an interviewer approves the scenario. Generated repo projects are stored as `scenario_projects` and `project_files`. If GitHub publishing is configured, scenario generation also creates a starter branch from `GITHUB_DEFAULT_BRANCH` and stores `starter_branch_name`, `starter_commit_sha`, `starter_repository_url`, `starter_push_status`, and `starter_push_error` on `scenario_projects`. Scenario generation still succeeds when GitHub is not configured or publishing fails. When a candidate starts an approved interview, the backend creates idempotent `session_file_snapshots` from those project files so future multi-file editing can track candidate changes per session. If the OpenAI key is absent or the provider call fails, the backend returns and stores a deterministic FastAPI orders project with an intentional quantity-calculation bug and a status-filter feature request.
+
+Approve a generated scenario:
+
+```http
+POST /api/interviews/{id}/scenario/approve
+Authorization: Bearer <interviewer_access_token>
+```
+
+Approving a scenario changes its status to `approved` and returns the interview to `READY`. Candidate invite creation and candidate invite start both require an approved scenario. Regenerating a scenario moves it back to `generated`, so interviewers must review and approve the new task before candidates can start.
 
 Read candidate submission results for an interview:
 
@@ -355,7 +365,7 @@ Content-Type: application/json
 }
 ```
 
-The candidate must already have an active `CANDIDATE` account in the interview organization. The response includes `invite_url`, `session_id`, and expiration metadata.
+The interview must have an approved scenario before invites can be created. The candidate may already have an active `CANDIDATE` account in the interview organization, or the invite can be generated ahead of account creation. The response includes `invite_url`, `session_id`, and expiration metadata.
 
 Open an invite:
 

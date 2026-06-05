@@ -269,10 +269,10 @@ function InterviewsContent() {
       const scenario = await generateScenario(token, interviewId);
       setInterviews((current) =>
         current.map((interview) =>
-          interview.id === interviewId ? { ...interview, scenario, status: "READY" } : interview,
+          interview.id === interviewId ? { ...interview, scenario, status: "SCENARIO_GENERATED" } : interview,
         ),
       );
-      setSuccessMessage("Scenario generated. Open the interview to review it and create an invite.");
+      setSuccessMessage("Scenario generated. Open the interview to review and approve it before inviting candidates.");
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to generate scenario.";
       setError(message);
