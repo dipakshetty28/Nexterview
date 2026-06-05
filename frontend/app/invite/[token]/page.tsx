@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ErrorState, LoadingState, StatusBadge, statusTone } from "@/components/app/page-primitives";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { ApiError, getInvite, startInviteSession } from "@/lib/api";
@@ -77,8 +78,8 @@ export default function InvitePage() {
         </div>
 
         <div className="rounded-md border border-slate-800 bg-slate-900/60 p-6">
-          {isLoading ? <p className="text-slate-300">Loading invite...</p> : null}
-          {error ? <p className="rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm text-red-200">{error}</p> : null}
+          {isLoading ? <LoadingState label="Loading candidate invite" rows={2} /> : null}
+          {error ? <ErrorState message={error} /> : null}
           {invite ? (
             <div className="grid gap-5">
               <div>
@@ -106,7 +107,9 @@ export default function InvitePage() {
                 </div>
                 <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
                   <p className="text-slate-500">Status</p>
-                  <p className="mt-1">{invite.status}</p>
+                  <div className="mt-2">
+                    <StatusBadge label={invite.status} tone={statusTone(invite.status)} />
+                  </div>
                 </div>
                 <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
                   <p className="text-slate-500">Expires</p>
@@ -135,7 +138,7 @@ export default function InvitePage() {
                 </p>
               ) : null}
               {isExpectedCandidate ? (
-                <Button disabled={isStarting} onClick={() => void handleStart()} type="button">
+                <Button aria-busy={isStarting} disabled={isStarting} onClick={() => void handleStart()} type="button">
                   {isStarting ? "Starting..." : invite.status === "used" ? "Continue interview" : "Start interview"}
                 </Button>
               ) : null}

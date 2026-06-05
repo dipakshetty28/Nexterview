@@ -119,6 +119,7 @@ export function EmptyState({
 }) {
   return (
     <section className="rounded-md border border-dashed border-slate-700 bg-slate-900/50 p-6 text-center">
+      <div className="mx-auto mb-4 h-1 w-16 rounded-full bg-cyan-400/70" />
       <h2 className="text-base font-semibold text-slate-100">{title}</h2>
       <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-400">{description}</p>
       {actionHref && actionLabel ? (
@@ -133,10 +134,29 @@ export function EmptyState({
   );
 }
 
-export function LoadingState({ label = "Loading..." }: { label?: string }) {
+function sanitizeUiMessage(message: string): string {
+  return message
+    .replace(/\b(OPENAI_API_KEY|GITHUB_TOKEN|JWT_SECRET|DATABASE_URL|REDIS_URL)\s*=\s*[^\s]+/gi, "$1=[redacted]")
+    .replace(/\b(postgresql|postgres|redis):\/\/[^\s)]+/gi, "$1://[redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}/g, "sk-[redacted]")
+    .replace(/Traceback \(most recent call last\):[\s\S]*?(?=\n\n|$)/g, "Technical details hidden.");
+}
+
+export function LoadingState({ label = "Loading workspace", rows = 3 }: { label?: string; rows?: number }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-900/70 p-5 text-sm text-slate-300">
-      {label}
+    <div className="rounded-md border border-slate-800 bg-slate-900/70 p-5" role="status" aria-live="polite">
+      <div className="flex items-center gap-3">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-700 border-t-cyan-300" />
+        <span className="text-sm font-medium text-slate-200">{label}</span>
+      </div>
+      <div className="mt-5 grid gap-3">
+        {Array.from({ length: rows }).map((_, index) => (
+          <div className="grid gap-2" key={index}>
+            <div className="h-3 w-1/3 animate-pulse rounded bg-slate-800" />
+            <div className="h-10 animate-pulse rounded-md bg-slate-950/80" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -144,7 +164,7 @@ export function LoadingState({ label = "Loading..." }: { label?: string }) {
 export function ErrorState({ message }: { message: string }) {
   return (
     <p className="rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm text-red-200">
-      {message}
+      {sanitizeUiMessage(message)}
     </p>
   );
 }

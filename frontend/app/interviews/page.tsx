@@ -328,8 +328,12 @@ function InterviewsContent() {
         title="Interviews"
       />
 
-      <section className="mt-6 grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <form className="grid gap-4 rounded-md border border-slate-800 bg-slate-900/70 p-5" onSubmit={handleCreateInterview}>
+      <section className="mt-6 grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+        <form
+          className="grid gap-4 rounded-md border border-slate-800 bg-slate-900/70 p-4"
+          id="create-interview"
+          onSubmit={handleCreateInterview}
+        >
           <div>
             <h2 className="text-lg font-semibold text-slate-100">Create interview</h2>
             <p className="mt-1 text-sm leading-6 text-slate-400">
@@ -428,19 +432,19 @@ function InterviewsContent() {
               {successMessage}
             </p>
           ) : null}
-          <Button disabled={isCreating} type="submit">
+          <Button aria-busy={isCreating} disabled={isCreating} type="submit">
             {isCreating ? "Creating..." : "Create interview"}
           </Button>
         </form>
 
-        <div className="grid min-w-0 gap-4">
-          <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-100">Interview list</h2>
-                <p className="mt-1 text-sm text-slate-400">Search, filter, and open interviews for scenario and invite controls.</p>
+        <div className="grid min-w-0 gap-3">
+          <section className="rounded-md border border-slate-800 bg-slate-900/70 px-3 py-3">
+            <div className="grid gap-3 lg:grid-cols-[auto_minmax(260px,1fr)_180px] lg:items-center">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-slate-100">Interview list</h2>
+                <p className="text-xs text-slate-500">{filteredInterviews.length} shown</p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-[minmax(220px,1fr)_180px]">
+              <div>
                 <label className="grid gap-2 text-sm text-slate-200" htmlFor="interview-search">
                   <span className="sr-only">Search interviews</span>
                   <input
@@ -451,6 +455,8 @@ function InterviewsContent() {
                     value={search}
                   />
                 </label>
+              </div>
+              <div>
                 <label className="grid gap-2 text-sm text-slate-200" htmlFor="status-filter">
                   <span className="sr-only">Filter by status</span>
                   <select
@@ -470,10 +476,12 @@ function InterviewsContent() {
             </div>
           </section>
 
-          {isLoading ? <LoadingState label="Loading interviews..." /> : null}
+          {isLoading ? <LoadingState label="Loading interviews" rows={4} /> : null}
 
           {!isLoading && interviews.length === 0 ? (
             <EmptyState
+              actionHref="#create-interview"
+              actionLabel="Create interview"
               description="Create an interview, generate a scenario, then send an invite from the detail page."
               title="No interviews yet"
             />
@@ -535,6 +543,7 @@ function InterviewsContent() {
                             </Link>
                             <Button
                               className="h-9 px-3 text-xs"
+                              aria-busy={generatingId === interview.id}
                               disabled={generatingId === interview.id}
                               onClick={() => void handleGenerateScenario(interview.id)}
                               type="button"
@@ -543,6 +552,7 @@ function InterviewsContent() {
                             </Button>
                             <Button
                               className="h-9 px-3 text-xs"
+                              aria-busy={deletingId === interview.id}
                               disabled={deletingId === interview.id}
                               onClick={() => void handleDeleteInterview(interview)}
                               type="button"

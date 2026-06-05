@@ -913,7 +913,12 @@ function ResultContent() {
       <PageHeader
         actions={
           result ? (
-            <Button disabled={isReviewing || result.agent_reviews.length > 0} onClick={() => void handleRunReview()} type="button">
+            <Button
+              aria-busy={isReviewing}
+              disabled={isReviewing || result.agent_reviews.length > 0}
+              onClick={() => void handleRunReview()}
+              type="button"
+            >
               {isReviewing ? "Reviewing..." : result.agent_reviews.length > 0 ? "Review complete" : "Run agent review"}
             </Button>
           ) : null
@@ -928,7 +933,7 @@ function ResultContent() {
           Back to results
         </Link>
 
-        {isLoading ? <LoadingState label="Loading result..." /> : null}
+        {isLoading ? <LoadingState label="Loading result" rows={4} /> : null}
         {error ? (
           <div className="grid gap-3">
             <ErrorState message={error} />

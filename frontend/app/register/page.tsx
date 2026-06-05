@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
+import { AuthPageShell } from "@/components/auth/auth-page-shell";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,34 +33,27 @@ export default function RegisterPage() {
       });
       router.push("/dashboard");
     } catch (caughtError) {
-      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to register.");
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to create account. Review the fields and try again.");
     } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <main className="grid min-h-screen bg-slate-950 px-6 py-10 text-slate-100 lg:grid-cols-[1fr_520px]">
-      <section className="hidden items-end border-r border-slate-800 pr-10 lg:flex">
-        <div className="max-w-xl pb-10">
-          <Link href="/" className="text-lg font-semibold">
-            Nexterview
-          </Link>
-          <h1 className="mt-8 text-5xl font-semibold tracking-tight">Create the first admin account.</h1>
-          <p className="mt-4 text-lg leading-8 text-slate-300">
-            Registration creates an organization, an ADMIN user, and the initial organization membership.
+    <AuthPageShell
+      description="Create the organization workspace your interviewers will use to generate tasks, invite candidates, and review evidence."
+      eyebrow="Organization setup"
+      title="Start evaluating modern engineering work."
+    >
+      <div>
+        <div>
+          <p className="text-sm font-semibold uppercase text-cyan-300">Create account</p>
+          <h2 className="mt-2 text-3xl font-semibold">Set up your workspace</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            This creates the first admin account for your organization.
           </p>
         </div>
-      </section>
-      <section className="mx-auto flex w-full max-w-md flex-col justify-center">
-        <Link href="/" className="mb-10 text-lg font-semibold lg:hidden">
-          Nexterview
-        </Link>
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">Register</h2>
-          <p className="mt-2 text-sm text-slate-400">Start with your organization owner account.</p>
-        </div>
-        <form className="mt-8 grid gap-5" onSubmit={handleSubmit}>
+        <form className="mt-7 grid gap-5" onSubmit={handleSubmit}>
           <Input
             id="fullName"
             label="Full name"
@@ -78,7 +72,7 @@ export default function RegisterPage() {
           />
           <Input
             id="email"
-            label="Email"
+            label="Work email"
             type="email"
             autoComplete="email"
             value={email}
@@ -96,8 +90,12 @@ export default function RegisterPage() {
             onChange={(event) => setPassword(event.target.value)}
             required
           />
-          {error ? <p className="rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm text-red-200">{error}</p> : null}
-          <Button type="submit" disabled={isSubmitting}>
+          {error ? (
+            <p className="rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm leading-6 text-red-200">
+              {error}
+            </p>
+          ) : null}
+          <Button aria-busy={isSubmitting} type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Creating account..." : "Create account"}
           </Button>
         </form>
@@ -107,7 +105,7 @@ export default function RegisterPage() {
             Log in
           </Link>
         </p>
-      </section>
-    </main>
+      </div>
+    </AuthPageShell>
   );
 }
