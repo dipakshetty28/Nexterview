@@ -17,6 +17,7 @@ from app.models.interview import (
     InterviewSession,
     InviteToken,
     Scenario,
+    ScenarioStatus,
     ScenarioProject,
     Submission,
 )
@@ -176,6 +177,14 @@ def _get_invite_for_interview(db: Session, *, interview: Interview, invite_id: U
     if invite is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite was not found.")
     return invite
+
+
+def _scenario_status(scenario: Scenario | None) -> str:
+    return scenario.status if scenario is not None else ScenarioStatus.DRAFT.value
+
+
+def _scenario_is_approved(scenario: Scenario | None) -> bool:
+    return scenario is not None and scenario.status == ScenarioStatus.APPROVED.value
 
 
 @router.post("", response_model=InterviewRead, status_code=status.HTTP_201_CREATED)
@@ -359,6 +368,8 @@ def create_candidate_invite(
     interview = _get_interview_for_user(db, interview_id, current_user)
     if interview.scenario is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Generate a scenario before creating invites.")
+    if not _scenario_is_approved(interview.scenario):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approve the scenario before creating invites.")
     candidate_email = _normalize_email(str(payload.candidate_email)) if payload.candidate_email else None
     created_invites: list[tuple[InviteToken, str]] = []
     for _ in range(payload.invite_count):
@@ -507,7 +518,8 @@ def generate_scenario(
     scenario.interviewer_rubric = result.scenario.interviewer_rubric
     scenario.generation_source = result.source
     scenario.ai_model = result.model
-    interview.status = "READY"
+    scenario.status = ScenarioStatus.GENERATED.value
+    interview.status = "SCENARIO_GENERATED"
 
     try:
         db.flush()
@@ -536,3 +548,29 @@ def generate_scenario(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to store scenario.")
     db.refresh(scenario)
     return ScenarioRead.model_validate(scenario)
+
+
+@router.post("/{interview_id}/scenario/approve", response_model=ScenarioRead)
+def approve_scenario(
+    interview_id: UUID,
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.INTERVIEWER))],
+    db: Annotated[Session, Depends(get_db)],
+) -> ScenarioRead:
+    interview = _get_interview_for_user(db, interview_id, current_user)
+    if interview.scenario is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Generate a scenario before approving it.")
+    if _scenario_status(interview.scenario) == ScenarioStatus.ARCHIVED.value:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archived scenarios cannot be approved.")
+
+    interview.scenario.status = ScenarioStatus.APPROVED.value
+    interview.status = "READY"
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        _raise_schema_not_ready(exc)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to approve scenario.") from exc
+    db.refresh(interview.scenario)
+    return ScenarioRead.model_validate(interview.scenario)

@@ -121,6 +121,7 @@ export type CandidateWorkspace = {
 export type Scenario = {
   id: string;
   interview_id: string;
+  status: "draft" | "generated" | "approved" | "archived";
   title: string;
   role_title: string;
   seniority: string;
@@ -446,6 +447,8 @@ export type PublicInvite = {
     duration_minutes: number;
     allowed_ai_mode: string;
     scenario_title: string | null;
+    scenario_status: "draft" | "generated" | "approved" | "archived" | null;
+    is_ready: boolean;
   };
   candidate_email: string | null;
   candidate_name: string | null;

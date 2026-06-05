@@ -31,6 +31,7 @@ from app.models import (
     OrganizationMember,
     ProjectFile,
     Scenario,
+    ScenarioStatus,
     ScenarioProject,
     Score,
     SessionFileSnapshot,
@@ -41,6 +42,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.services.invites import generate_invite_token, hash_invite_token
 from app.services.copilot import CopilotResult
 from app.services.github import GitHubSubmissionPushResult
 from app.services.review_agents import AGENT_DEFINITIONS, AgentReviewResult, generate_file_diffs
@@ -57,6 +59,7 @@ _ = (
     OrganizationMember,
     ProjectFile,
     Scenario,
+    ScenarioStatus,
     ScenarioProject,
     Score,
     SessionFileSnapshot,
@@ -185,6 +188,12 @@ def _create_ready_interview(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert scenario_response.status_code == 200
+    approve_response = client.post(
+        f"/api/interviews/{interview_id}/scenario/approve",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == "approved"
     return interview_id
 
 
@@ -335,6 +344,8 @@ def test_interviewer_invites_candidate_and_candidate_starts_session(
     assert public_invite["candidate_email"] == "candidate@example.com"
     assert public_invite["status"] == "active"
     assert public_invite["interview"]["scenario_title"]
+    assert public_invite["interview"]["scenario_status"] == "approved"
+    assert public_invite["interview"]["is_ready"] is True
 
     unauthenticated_start = client.post(f"/api/invite/{raw_invite_token}/start")
     assert unauthenticated_start.status_code == 401
@@ -1603,6 +1614,85 @@ def test_multi_file_submission_review_uses_repo_context_and_internal_rubric(
     assert stored_score.weighted_score == 82
     assert stored_score.recommendation == "hire"
     assert len(stored_score.score_breakdown) == 7
+
+
+def test_unapproved_scenario_blocks_invites_and_candidate_start(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    admin_token = _register_admin(client)
+    _create_candidate(client, email="pending@example.com", full_name="Pending Candidate")
+    create_response = client.post(
+        "/api/interviews",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "role_title": "Backend Engineer",
+            "seniority": "Senior",
+            "stack": ["Python", "FastAPI", "PostgreSQL"],
+            "difficulty": "Intermediate",
+            "interview_type": "Backend debugging",
+            "duration_minutes": 75,
+            "allowed_ai_mode": "Pair Programmer Mode",
+            "evaluation_criteria": ["Correctness", "Debugging", "AI validation"],
+        },
+    )
+    assert create_response.status_code == 201
+    interview_id = create_response.json()["id"]
+    scenario_response = client.post(
+        f"/api/interviews/{interview_id}/generate-scenario",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert scenario_response.status_code == 200
+    assert scenario_response.json()["status"] == "generated"
+
+    blocked_invite = client.post(
+        f"/api/interviews/{interview_id}/invite",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"candidate_email": "pending@example.com"},
+    )
+    assert blocked_invite.status_code == 409
+    assert blocked_invite.json()["detail"] == "Approve the scenario before creating invites."
+
+    raw_token = generate_invite_token()
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        interview = db.execute(select(Interview).where(Interview.id == interview_id)).scalar_one()
+        db.add(
+            InviteToken(
+                organization_id=interview.organization_id,
+                interview_id=interview.id,
+                created_by_id=interview.created_by_id,
+                token=raw_token,
+                token_hash=hash_invite_token(raw_token),
+                candidate_email="pending@example.com",
+                candidate_name="Pending Candidate",
+                status="active",
+                expires_at=datetime.now(timezone.utc) + timedelta(days=14),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    public_response = client.get(f"/api/invite/{raw_token}")
+    assert public_response.status_code == 200
+    public_invite = public_response.json()
+    assert public_invite["interview"]["scenario_status"] == "generated"
+    assert public_invite["interview"]["is_ready"] is False
+
+    candidate_login = client.post(
+        "/api/auth/login",
+        json={"email": "pending@example.com", "password": "StrongPass123!"},
+    )
+    assert candidate_login.status_code == 200
+    start_response = client.post(
+        f"/api/invite/{raw_token}/start",
+        headers={"Authorization": f"Bearer {candidate_login.json()['access_token']}"},
+    )
+    assert start_response.status_code == 409
+    assert start_response.json()["detail"] == "Interview is not ready yet. The scenario is waiting for interviewer approval."
 
 
 def test_review_failure_marks_submission_failed_without_fake_pass(

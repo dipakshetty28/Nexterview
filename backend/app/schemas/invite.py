@@ -67,6 +67,8 @@ class InviteInterviewRead(BaseModel):
     duration_minutes: int
     allowed_ai_mode: str
     scenario_title: str | None = None
+    scenario_status: str | None = None
+    is_ready: bool = False
 
 
 class PublicInviteRead(BaseModel):

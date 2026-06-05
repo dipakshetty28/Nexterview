@@ -21,6 +21,13 @@ class InterviewSessionStatus(str, enum.Enum):
     REVIEW_FAILED = "review_failed"
 
 
+class ScenarioStatus(str, enum.Enum):
+    DRAFT = "draft"
+    GENERATED = "generated"
+    APPROVED = "approved"
+    ARCHIVED = "archived"
+
+
 class TelemetryEventType(str, enum.Enum):
     SESSION_STARTED = "session_started"
     CODE_EDIT = "code_edit"
@@ -98,6 +105,7 @@ class Scenario(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default=ScenarioStatus.DRAFT.value)
     title: Mapped[str] = mapped_column(String(180), nullable=False)
     role_title: Mapped[str] = mapped_column(String(140), nullable=False, default="")
     seniority: Mapped[str] = mapped_column(String(80), nullable=False, default="")

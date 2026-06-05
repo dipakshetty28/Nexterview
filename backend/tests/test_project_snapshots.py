@@ -17,6 +17,7 @@ from app.models import (
     OrganizationMember,
     ProjectFile,
     Scenario,
+    ScenarioStatus,
     ScenarioProject,
     SessionFileSnapshot,
     User,
@@ -116,6 +117,7 @@ def _create_interview_graph(db: Session) -> tuple[Interview, Scenario, Interview
         interviewer_rubric=["Correctness", "Debugging process"],
         generation_source="test",
         ai_model=None,
+        status=ScenarioStatus.APPROVED.value,
     )
     db.add(scenario)
     db.flush()

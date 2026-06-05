@@ -97,6 +97,7 @@ class GeneratedScenario(BaseModel):
 class ScenarioRead(GeneratedScenario):
     id: UUID
     interview_id: UUID
+    status: str
     generation_source: str
     ai_model: str | None = None
     project: ScenarioProjectRead | None = None

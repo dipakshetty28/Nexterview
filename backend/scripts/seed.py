@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
-from app.models.interview import Interview, Scenario
+from app.models.interview import Interview, Scenario, ScenarioStatus
 from app.models.organization import Organization, OrganizationMember
 from app.models.user import User, UserRole
 from app.services.scenario_projects import upsert_scenario_project
@@ -136,6 +136,7 @@ def _upsert_sample_interview(db: Session, *, organization: Organization, intervi
     scenario.interviewer_rubric = generated.interviewer_rubric
     scenario.generation_source = "fallback"
     scenario.ai_model = None
+    scenario.status = ScenarioStatus.APPROVED.value
     db.flush()
     upsert_scenario_project(db, scenario=scenario, project_payload=generated.project)
 

@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ApiError,
+  approveScenario,
   createCandidateInvite,
   deleteInterview,
   generateScenario,
@@ -30,7 +31,14 @@ import {
   regenerateInterviewInvite,
   revokeInterviewInvite,
 } from "@/lib/api";
-import type { Interview, InterviewSubmissionResult, InviteTokenResponse, ProjectFile, ScenarioProject } from "@/lib/types";
+import type {
+  Interview,
+  InterviewSubmissionResult,
+  InviteTokenResponse,
+  ProjectFile,
+  ScenarioFilePayload,
+  ScenarioProject,
+} from "@/lib/types";
 
 const DEFAULT_INVITE_EMAIL = "";
 const DEFAULT_INVITE_NAME = "";
@@ -135,6 +143,34 @@ function CandidateSessionRow({ submission }: { submission: InterviewSubmissionRe
   );
 }
 
+function ScenarioFilesPreview({ files, title }: { files: ScenarioFilePayload[]; title: string }) {
+  return (
+    <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-4">
+      <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+        <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+        <span className="text-xs uppercase tracking-wide text-slate-500">{files.length} files</span>
+      </div>
+      {files.length ? (
+        <div className="grid gap-2">
+          {files.map((file) => (
+            <details className="rounded-md border border-slate-800 bg-slate-950" key={file.path}>
+              <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-100">
+                <span>{file.path}</span>
+                <span className="ml-2 text-xs text-slate-500">{file.language}</span>
+              </summary>
+              <pre className="max-h-80 overflow-auto border-t border-slate-800 p-3 text-xs leading-5 text-slate-200">
+                {file.content}
+              </pre>
+            </details>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500">No files recorded.</p>
+      )}
+    </section>
+  );
+}
+
 function InviteRow({
   invite,
   isCopied,
@@ -201,6 +237,7 @@ function InterviewDetailContent() {
   const [inviteCount, setInviteCount] = useState(DEFAULT_INVITE_COUNT);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCreatingInvite, setIsCreatingInvite] = useState(false);
   const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
@@ -213,6 +250,8 @@ function InterviewDetailContent() {
     ["submitted", "ready_for_review", "review_in_progress", "reviewed", "review_failed"].includes(submission.status),
   ).length;
   const reviewedCount = submissions.filter((submission) => submission.status === "reviewed").length;
+  const scenarioStatus = interview?.scenario?.status ?? "draft";
+  const scenarioReady = scenarioStatus === "approved";
 
   useEffect(() => {
     if (!token || !params.interviewId || !canManageInterviews) {
@@ -248,8 +287,8 @@ function InterviewDetailContent() {
     setSuccessMessage(null);
     try {
       const scenario = await generateScenario(token, interview.id);
-      setInterview({ ...interview, scenario, status: "READY" });
-      setSuccessMessage("Scenario generated. Review the task before inviting candidates.");
+      setInterview({ ...interview, scenario, status: "SCENARIO_GENERATED" });
+      setSuccessMessage("Scenario generated. Review and approve it before inviting candidates.");
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to generate scenario.";
       setError(message);
@@ -258,8 +297,31 @@ function InterviewDetailContent() {
     }
   }
 
+  async function handleApproveScenario() {
+    if (!token || !interview?.scenario) {
+      return;
+    }
+    setIsApproving(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const scenario = await approveScenario(token, interview.id);
+      setInterview({ ...interview, scenario, status: "READY" });
+      setSuccessMessage("Scenario approved. Candidate invites can now be created and started.");
+    } catch (requestError: unknown) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to approve scenario.";
+      setError(message);
+    } finally {
+      setIsApproving(false);
+    }
+  }
+
   async function handleCreateInvite() {
     if (!token || !interview) {
+      return;
+    }
+    if (!scenarioReady) {
+      setError("Approve the generated scenario before creating invites.");
       return;
     }
     const candidateEmail = inviteEmail.trim();
@@ -395,6 +457,15 @@ function InterviewDetailContent() {
               <Button aria-busy={isGenerating} disabled={isGenerating} onClick={() => void handleGenerateScenario()} type="button">
                 {isGenerating ? "Generating..." : interview.scenario ? "Regenerate scenario" : "Generate scenario"}
               </Button>
+              <Button
+                aria-busy={isApproving}
+                disabled={isApproving || !interview.scenario || scenarioReady}
+                onClick={() => void handleApproveScenario()}
+                type="button"
+                variant="secondary"
+              >
+                {isApproving ? "Approving..." : scenarioReady ? "Scenario approved" : "Approve scenario"}
+              </Button>
               <Button aria-busy={isDeleting} disabled={isDeleting} onClick={() => void handleDeleteInterview()} type="button" variant="secondary">
                 {isDeleting ? "Deleting..." : "Delete"}
               </Button>
@@ -420,7 +491,12 @@ function InterviewDetailContent() {
             <section className="grid gap-4 lg:grid-cols-4">
               <StatCard description={`${interview.seniority} / ${interview.difficulty}`} label="Role" value={interview.role_title} />
               <StatCard description={interview.interview_type} label="Duration" value={`${interview.duration_minutes} min`} />
-              <StatCard description={interview.scenario ? "Scenario ready for review" : "Scenario not generated"} label="Scenario status" tone={statusTone(interview.status)} value={interview.status} />
+              <StatCard
+                description={scenarioReady ? "Candidates can start approved invites." : "Review and approve before inviting."}
+                label="Scenario status"
+                tone={statusTone(scenarioStatus)}
+                value={scenarioStatus}
+              />
               <StatCard description={`${submittedCount} submitted, ${reviewedCount} reviewed`} label="Candidate sessions" value={submissions.length} />
             </section>
 
@@ -429,6 +505,7 @@ function InterviewDetailContent() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge label={interview.status} tone={statusTone(interview.status)} />
+                    <StatusBadge label={`Scenario: ${scenarioStatus}`} tone={statusTone(scenarioStatus)} />
                     <StatusBadge label={interview.allowed_ai_mode} tone="info" />
                   </div>
                   <h2 className="mt-3 text-lg font-semibold text-slate-100">{interview.role_title}</h2>
@@ -478,7 +555,7 @@ function InterviewDetailContent() {
                     <Button
                       className="flex-1"
                       aria-busy={isCreatingInvite}
-                      disabled={isCreatingInvite || !interview.scenario}
+                      disabled={isCreatingInvite || !scenarioReady}
                       onClick={() => void handleCreateInvite()}
                       type="button"
                       variant="secondary"
@@ -488,6 +565,8 @@ function InterviewDetailContent() {
                   </div>
                   {!interview.scenario ? (
                     <p className="text-xs text-slate-500">Generate the scenario before creating an invite.</p>
+                  ) : !scenarioReady ? (
+                    <p className="text-xs text-amber-200">Approve the generated scenario before creating candidate links.</p>
                   ) : (
                     <p className="text-xs text-slate-500">
                       Leave email blank to create generic single-use links for candidates in this organization.
@@ -590,13 +669,18 @@ function InterviewDetailContent() {
                     <h2 className="mt-1 text-xl font-semibold">{interview.scenario.title}</h2>
                     <p className="mt-2 text-sm leading-6 text-slate-300">{interview.scenario.business_context}</p>
                   </div>
-                  <StatusBadge label="Reviewer visible" tone="info" />
+                  <div className="flex flex-wrap gap-2">
+                    <StatusBadge label={scenarioStatus} tone={statusTone(scenarioStatus)} />
+                    <StatusBadge label="Reviewer visible" tone="info" />
+                  </div>
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <ReviewList items={interview.scenario.technical_requirements} title="Visible requirements" />
+                  <ReviewList items={interview.scenario.visible_requirements} title="Visible requirements" />
+                  <ReviewList items={interview.scenario.constraints} title="Candidate constraints" />
                   <ReviewList items={interview.scenario.expected_behavior} title="Expected behavior" />
                   <ReviewList items={interview.scenario.hidden_evaluation_points} title="Hidden evaluation points" />
+                  <ReviewList items={interview.scenario.hidden_rubric} title="Hidden rubric" />
                   <ReviewList items={interview.scenario.interviewer_rubric} title="Interviewer rubric" />
                 </div>
 
@@ -625,7 +709,16 @@ function InterviewDetailContent() {
                   </p>
                 </section>
 
+                <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-4">
+                  <h3 className="text-sm font-semibold text-slate-100">Expected solution summary</h3>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300">{interview.scenario.expected_solution_summary}</p>
+                </section>
+
                 {interview.scenario.project ? <ProjectFilesPreview project={interview.scenario.project} /> : null}
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <ScenarioFilesPreview files={interview.scenario.starter_files_json} title="Candidate-visible starter files" />
+                  <ScenarioFilesPreview files={interview.scenario.test_files_json} title="Candidate-visible tests" />
+                </div>
               </section>
             ) : (
               <EmptyState
