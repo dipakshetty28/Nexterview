@@ -28,6 +28,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
   - `GET /api/submissions/{id}/reviews`
   - `GET /api/results`
   - `GET /api/results/{session_id}`
+  - `GET /api/calibration`
 - Candidate invite/session endpoints:
   - `GET /api/invite/{token}`
   - `POST /api/invite/{token}/start`
@@ -44,7 +45,7 @@ Nexterview is the foundation for an AI-native engineering interview platform. Th
 - Graceful deterministic scenario and copilot fallbacks when `OPENAI_API_KEY` is missing or generation fails
 - Role-aware executable scenario generation with a seed catalog of failing starter projects, visible tests, private expected solution files, validation metadata, and interviewer-only rubric fields
 - Roles: `ADMIN`, `INTERVIEWER`, `CANDIDATE`
-- Frontend login, register, auth state, protected dashboard route, interviewer management route, interviewer results dashboard with Recharts score/status visualizations, invite page, repo submission result page, and a resizable Monaco-powered candidate IDE workspace with task, editor, AI copilot, file tree, output, required final explanation, snapshot autosave, pass/fail run output, and final submit confirmation
+- Frontend login, register, auth state, protected dashboard route, interviewer management route, interviewer results dashboard with Recharts score/status visualizations, interviewer calibration page, invite page, repo submission result page, and a resizable Monaco-powered candidate IDE workspace with task, editor, AI copilot, file tree, output, required final explanation, snapshot autosave, pass/fail run output, and final submit confirmation
 - Optional GitHub publishing that creates a starter branch from the configured default branch when a scenario is generated, then creates a candidate-specific submission branch and pull request against that starter branch so reviewers see only candidate changes
 - Structured AI copilot responses with markdown answers, suggested file chips, confidence, risk flags, and telemetry for later prompting-skill analytics
 - Repo-aware multi-agent review that evaluates original project files, submitted files, generated diffs, AI transcript, telemetry, test outputs, candidate notes, and GitHub branch/PR links while allowing internal-only rubric context
@@ -322,6 +323,15 @@ Authorization: Bearer <interviewer_access_token>
 `GET /api/results` returns an organization-scoped interviewer dashboard list of interview sessions with candidate info, status, submitted/reviewed timestamps, final score, recommendation, GitHub PR status, and flattened risk flags. `GET /api/results/{session_id}` returns the result detail payload with changed files, submitted code files, unified diffs, GitHub push metadata including the submission branch and PR base branch, agent reviews, weighted score breakdown, AI chat transcript, telemetry timeline, prompt quality summary, AI usage analysis, submitted test output, candidate notes, and cross-agent risk flags. The backend stores the final weighted result in the `scores` table. The weighted score uses the current rubric weights: Code Quality 15%, Correctness 20%, Architecture 15%, Debugging 15%, AI Usage 15%, Prompting Skill 10%, and Communication 10%. Security and Performance agents report risks but are not separate weighted categories.
 
 Candidates cannot access review endpoints or the interviewer results dashboard unless a future explicit sharing flow is added.
+
+Read interviewer calibration examples:
+
+```http
+GET /api/calibration
+Authorization: Bearer <interviewer_access_token>
+```
+
+`GET /api/calibration` returns three curated completed-session examples for `ADMIN` and `INTERVIEWER` users: strong, average, and weak candidate performance. Each example includes final code, test results, AI transcript, agent review summaries, expected versus observed behavior, differentiating signals, final score, and recommendation. These examples are static calibration references, not real candidate records, and candidates cannot access the endpoint or `/calibration` page.
 
 Delete an interview:
 

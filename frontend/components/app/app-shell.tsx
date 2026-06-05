@@ -19,6 +19,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", roles: ["ADMIN", "INTERVIEWER"] },
   { label: "Interviews", href: "/interviews", roles: ["ADMIN", "INTERVIEWER"] },
   { label: "Results", href: "/results", roles: ["ADMIN", "INTERVIEWER"] },
+  { label: "Calibration", href: "/calibration", roles: ["ADMIN", "INTERVIEWER"] },
 ];
 
 function initials(name?: string | null): string {
