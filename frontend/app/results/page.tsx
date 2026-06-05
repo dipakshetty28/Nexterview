@@ -124,7 +124,7 @@ function ResultsDashboardContent() {
 
       <section className="mt-6 grid gap-5">
         {error ? <ErrorState message={error} /> : null}
-        {isLoading ? <LoadingState label="Loading results..." /> : null}
+        {isLoading ? <LoadingState label="Loading results" rows={4} /> : null}
 
         <section className="grid gap-3 md:grid-cols-4">
           <StatCard description="All candidate sessions." label="Sessions" value={items.length} />

@@ -122,7 +122,7 @@ function DashboardContent() {
 
       <div className="mt-6 grid gap-5">
         {error ? <ErrorState message={error} /> : null}
-        {isLoading ? <LoadingState label="Loading hiring workspace..." /> : null}
+        {isLoading ? <LoadingState label="Loading hiring workspace" rows={3} /> : null}
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard description="Configured interviews in this organization." label="Active interviews" tone="info" value={metrics.activeInterviews} />

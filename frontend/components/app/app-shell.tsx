@@ -11,7 +11,7 @@ import type { UserRole } from "@/lib/types";
 
 type NavItem = {
   label: string;
-  href?: string;
+  href: string;
   roles: UserRole[];
 };
 
@@ -19,8 +19,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", roles: ["ADMIN", "INTERVIEWER"] },
   { label: "Interviews", href: "/interviews", roles: ["ADMIN", "INTERVIEWER"] },
   { label: "Results", href: "/results", roles: ["ADMIN", "INTERVIEWER"] },
-  { label: "Members", roles: ["ADMIN"] },
-  { label: "Settings", roles: ["ADMIN"] },
 ];
 
 function initials(name?: string | null): string {
@@ -61,31 +59,20 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <nav aria-label="Primary navigation" className="mt-5 grid gap-1">
-            {navItems.map((item) =>
-              item.href ? (
-                <Link
-                  className={cn(
-                    "rounded-md px-3 py-2.5 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
-                    isActive(pathname, item.href)
-                      ? "bg-cyan-400 text-slate-950"
-                      : "text-slate-300 hover:bg-slate-900 hover:text-white",
-                  )}
-                  href={item.href}
-                  key={item.label}
-                >
-                  {item.label}
-                </Link>
-              ) : (
-                <span
-                  aria-disabled="true"
-                  className="rounded-md px-3 py-2.5 text-sm font-medium text-slate-600"
-                  key={item.label}
-                  title="Not available in this build"
-                >
-                  {item.label}
-                </span>
-              ),
-            )}
+            {navItems.map((item) => (
+              <Link
+                className={cn(
+                  "rounded-md px-3 py-2.5 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
+                  item.href && isActive(pathname, item.href)
+                    ? "bg-cyan-400 text-slate-950"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white",
+                )}
+                href={item.href}
+                key={item.label}
+              >
+                {item.label}
+              </Link>
+            ))}
           </nav>
         </aside>
 
@@ -107,11 +94,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                       <Link
                         className={cn(
                           "rounded-md px-3 py-2 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
-                          item.href && isActive(pathname, item.href)
+                          isActive(pathname, item.href)
                             ? "bg-cyan-400 text-slate-950"
                             : "border border-slate-800 text-slate-300 hover:border-slate-600",
                         )}
-                        href={item.href as string}
+                        href={item.href}
                         key={item.label}
                       >
                         {item.label}

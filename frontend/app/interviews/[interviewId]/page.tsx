@@ -173,13 +173,13 @@ function InviteRow({
       </td>
       <td className="px-5 py-4">
         <div className="flex flex-wrap gap-2">
-          <Button disabled={!invite.invite_url || isBusy} onClick={() => onCopy(invite)} type="button" variant="ghost">
+          <Button aria-busy={isBusy} disabled={!invite.invite_url || isBusy} onClick={() => onCopy(invite)} type="button" variant="ghost">
             {isCopied ? "Copied" : "Copy"}
           </Button>
-          <Button disabled={invite.status !== "active" || isBusy} onClick={() => onRegenerate(invite)} type="button" variant="secondary">
+          <Button aria-busy={isBusy} disabled={invite.status !== "active" || isBusy} onClick={() => onRegenerate(invite)} type="button" variant="secondary">
             Regenerate
           </Button>
-          <Button disabled={invite.status !== "active" || isBusy} onClick={() => onRevoke(invite)} type="button" variant="ghost">
+          <Button aria-busy={isBusy} disabled={invite.status !== "active" || isBusy} onClick={() => onRevoke(invite)} type="button" variant="ghost">
             Revoke
           </Button>
         </div>
@@ -392,10 +392,10 @@ function InterviewDetailContent() {
         actions={
           interview ? (
             <>
-              <Button disabled={isGenerating} onClick={() => void handleGenerateScenario()} type="button">
+              <Button aria-busy={isGenerating} disabled={isGenerating} onClick={() => void handleGenerateScenario()} type="button">
                 {isGenerating ? "Generating..." : interview.scenario ? "Regenerate scenario" : "Generate scenario"}
               </Button>
-              <Button disabled={isDeleting} onClick={() => void handleDeleteInterview()} type="button" variant="secondary">
+              <Button aria-busy={isDeleting} disabled={isDeleting} onClick={() => void handleDeleteInterview()} type="button" variant="secondary">
                 {isDeleting ? "Deleting..." : "Delete"}
               </Button>
             </>
@@ -407,7 +407,7 @@ function InterviewDetailContent() {
       />
 
       <section className="mt-6 grid gap-5">
-        {isLoading ? <LoadingState label="Loading interview..." /> : null}
+        {isLoading ? <LoadingState label="Loading interview" rows={4} /> : null}
         {error ? <ErrorState message={error} /> : null}
         {successMessage ? (
           <p className="rounded-md border border-emerald-900/70 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
@@ -477,6 +477,7 @@ function InterviewDetailContent() {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
                       className="flex-1"
+                      aria-busy={isCreatingInvite}
                       disabled={isCreatingInvite || !interview.scenario}
                       onClick={() => void handleCreateInvite()}
                       type="button"
