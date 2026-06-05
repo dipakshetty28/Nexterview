@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+
 import pytest
 
 from app.core.config import settings
@@ -96,3 +98,21 @@ def test_rule_based_review_does_not_pass_no_change_submission(monkeypatch: pytes
     assert by_type["hiring_recommendation"].recommendation in {"lean_no_hire", "no_hire"}
     assert "No meaningful code changes detected." in by_type["correctness"].risk_flags
     assert by_type["ai_usage"].score < 50
+
+
+def test_review_falls_back_when_openai_sdk_is_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
+    real_import = builtins.__import__
+
+    def missing_openai_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "openai":
+            raise ModuleNotFoundError("No module named 'openai'", name="openai")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", missing_openai_import)
+
+    reviews = RepoSubmissionReviewer().review(_review_context())
+    by_type = {review.agent_type: review for review in reviews}
+
+    assert by_type["correctness"].raw_response["review_source"] == "rule_based_fallback"
+    assert by_type["hiring_recommendation"].review_source == "rule_based_fallback"
