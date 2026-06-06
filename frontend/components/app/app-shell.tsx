@@ -48,25 +48,25 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navItems = NAV_ITEMS.filter((item) => user && item.roles.includes(user.role));
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
+    <main className="app-page-bg min-h-screen text-slate-950">
       <div className="flex min-h-screen">
-        <aside className="hidden w-72 shrink-0 border-r border-slate-800 bg-slate-950/95 px-4 py-5 lg:block">
-          <div className="rounded-md border border-slate-800 bg-slate-900/60 p-4">
-            <Link className="text-sm font-semibold text-cyan-300 outline-none hover:text-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-400/60" href="/dashboard">
+        <aside className="hidden w-72 shrink-0 border-r border-white/80 bg-white/80 px-4 py-5 shadow-panel backdrop-blur-xl lg:block">
+          <div className="rounded-card border border-slate-200 bg-white p-4 shadow-sm">
+            <Link className="text-sm font-semibold text-blue-700 outline-none hover:text-blue-900" href="/dashboard">
               Nexterview
             </Link>
             <p className="mt-3 text-xs uppercase tracking-wide text-slate-500">Organization</p>
-            <p className="mt-1 truncate text-sm font-medium text-slate-100">{organization?.name ?? "Workspace"}</p>
+            <p className="mt-1 truncate text-sm font-medium text-slate-950">{organization?.name ?? "Workspace"}</p>
           </div>
 
           <nav aria-label="Primary navigation" className="mt-5 grid gap-1">
             {navItems.map((item) => (
               <Link
                 className={cn(
-                  "rounded-md px-3 py-2.5 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
+                  "rounded-lg px-3 py-2.5 text-sm font-semibold outline-none transition",
                   item.href && isActive(pathname, item.href)
-                    ? "bg-cyan-400 text-slate-950"
-                    : "text-slate-300 hover:bg-slate-900 hover:text-white",
+                    ? "bg-blue-600 text-white shadow-sm shadow-blue-900/15"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
                 )}
                 href={item.href}
                 key={item.label}
@@ -78,11 +78,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         </aside>
 
         <section className="min-w-0 flex-1">
-          <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
+          <header className="sticky top-0 z-20 border-b border-white/80 bg-white/80 shadow-sm backdrop-blur-xl">
             <div className="flex flex-col gap-3 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Nexterview</p>
-                <p className="mt-1 truncate text-sm font-medium text-slate-200">
+                <p className="mt-1 truncate text-sm font-medium text-slate-900">
                   {organization?.name ?? "Organization workspace"}
                 </p>
               </div>
@@ -94,10 +94,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                     .map((item) => (
                       <Link
                         className={cn(
-                          "rounded-md px-3 py-2 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
+                          "rounded-lg px-3 py-2 text-xs font-semibold outline-none transition",
                           isActive(pathname, item.href)
-                            ? "bg-cyan-400 text-slate-950"
-                            : "border border-slate-800 text-slate-300 hover:border-slate-600",
+                            ? "bg-blue-600 text-white"
+                            : "border border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50",
                         )}
                         href={item.href}
                         key={item.label}
@@ -108,18 +108,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </nav>
 
                 <details className="relative">
-                  <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md border border-slate-800 bg-slate-900 px-3 py-2 outline-none transition hover:border-slate-600 focus-visible:ring-2 focus-visible:ring-cyan-400/60">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-md bg-cyan-400 text-xs font-bold text-slate-950">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition hover:border-slate-400 hover:bg-slate-50">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-xs font-bold text-white shadow-sm">
                       {initials(user?.full_name)}
                     </span>
                     <span className="hidden min-w-0 text-left sm:block">
-                      <span className="block truncate text-sm font-medium text-slate-100">{user?.full_name}</span>
+                      <span className="block truncate text-sm font-medium text-slate-950">{user?.full_name}</span>
                       <span className="block text-xs text-slate-500">{user?.role}</span>
                     </span>
                   </summary>
-                  <div className="absolute right-0 mt-2 w-72 rounded-md border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950">
-                    <p className="truncate text-sm font-medium text-slate-100">{user?.full_name}</p>
-                    <p className="mt-1 truncate text-xs text-slate-400">{user?.email}</p>
+                  <div className="absolute right-0 mt-2 w-72 rounded-card border border-slate-200 bg-white p-3 shadow-elevated">
+                    <p className="truncate text-sm font-medium text-slate-950">{user?.full_name}</p>
+                    <p className="mt-1 truncate text-xs text-slate-500">{user?.email}</p>
                     <Button className="mt-3 w-full" onClick={logout} type="button" variant="secondary">
                       Log out
                     </Button>

@@ -6,10 +6,13 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 
 import { AppShell } from "@/components/app/app-shell";
 import {
+  ActionButton,
   EmptyState,
   ErrorState,
+  InfoTooltip,
   LoadingState,
   PageHeader,
+  SectionHeader,
   StatCard,
   StatusBadge,
   formatDateTime,
@@ -22,18 +25,18 @@ import type { ResultsDashboardItem } from "@/lib/types";
 
 function scoreTone(score: number | null): string {
   if (score === null) {
-    return "text-slate-500";
+    return "text-slate-400";
   }
   if (score >= 80) {
-    return "text-emerald-300";
+    return "text-emerald-700";
   }
   if (score >= 65) {
-    return "text-cyan-300";
+    return "text-blue-700";
   }
   if (score >= 50) {
-    return "text-amber-300";
+    return "text-amber-700";
   }
-  return "text-red-300";
+  return "text-rose-700";
 }
 
 function recommendationLabel(value: string | null): string {
@@ -110,12 +113,9 @@ function ResultsDashboardContent() {
     <AppShell>
       <PageHeader
         actions={
-          <Link
-            className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-slate-700 px-4 text-sm font-medium text-slate-200 hover:border-cyan-500 hover:text-cyan-200"
-            href="/interviews"
-          >
+          <ActionButton href="/interviews" variant="secondary">
             Interviews
-          </Link>
+          </ActionButton>
         }
         description="Review organization interview sessions, scores, recommendations, and risk signals."
         eyebrow="Hiring intelligence"
@@ -145,53 +145,56 @@ function ResultsDashboardContent() {
         {items.length ? (
           <>
             <section className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
-                <h2 className="text-lg font-semibold">Session status</h2>
+              <div className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
+                <SectionHeader
+                  aside={<InfoTooltip content="Review status moves from submitted to reviewed as background or manual agents complete their work." label="Review status help" />}
+                  title="Session status"
+                />
                 <div className="mt-4 h-64">
                   <ResponsiveContainer height="100%" width="100%">
                     <BarChart data={statusData}>
-                      <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
-                      <XAxis dataKey="status" stroke="#94a3b8" />
-                      <YAxis allowDecimals={false} stroke="#94a3b8" />
-                      <Tooltip contentStyle={{ background: "#020617", border: "1px solid #334155", color: "#e2e8f0" }} />
-                      <Bar dataKey="count" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                      <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                      <XAxis dataKey="status" stroke="#64748b" />
+                      <YAxis allowDecimals={false} stroke="#64748b" />
+                      <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", color: "#0f172a", borderRadius: "12px" }} />
+                      <Bar dataKey="count" fill="#059669" radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
-                <h2 className="text-lg font-semibold">Recent reviewed scores</h2>
+              <div className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
+                <SectionHeader title="Recent reviewed scores" />
                 {scoreData.length ? (
                   <div className="mt-4 h-64">
                     <ResponsiveContainer height="100%" width="100%">
                       <BarChart data={scoreData}>
-                        <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
-                        <XAxis dataKey="name" stroke="#94a3b8" />
-                        <YAxis domain={[0, 100]} stroke="#94a3b8" />
-                        <Tooltip contentStyle={{ background: "#020617", border: "1px solid #334155", color: "#e2e8f0" }} />
-                        <Bar dataKey="score" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                        <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                        <XAxis dataKey="name" stroke="#64748b" />
+                        <YAxis domain={[0, 100]} stroke="#64748b" />
+                        <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", color: "#0f172a", borderRadius: "12px" }} />
+                        <Bar dataKey="score" fill="#2563eb" radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 ) : (
-                  <p className="mt-4 rounded-md border border-slate-800 bg-slate-950 px-3 py-4 text-sm text-slate-400">
+                  <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-600">
                     Scores appear after reviews are complete.
                   </p>
                 )}
               </div>
             </section>
 
-            <section className="rounded-md border border-slate-800 bg-slate-900/70">
-              <div className="flex flex-col gap-2 border-b border-slate-800 px-5 py-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold">Interview sessions</h2>
-                  <p className="mt-1 text-sm text-slate-400">Only sessions in your organization are shown.</p>
-                </div>
-                <span className="text-xs uppercase tracking-wide text-slate-500">{items.length} total</span>
+            <section className="overflow-hidden rounded-card border border-white/80 bg-white shadow-panel">
+              <div className="border-b border-slate-200 px-5 py-4">
+                <SectionHeader
+                  aside={<span className="text-xs uppercase tracking-wide text-slate-500">{items.length} total</span>}
+                  description="Only sessions in your organization are shown."
+                  title="Interview sessions"
+                />
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-                  <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500">
+                <table className="table-surface">
+                  <thead className="table-head">
                     <tr>
                       <th className="px-5 py-3 font-medium">Candidate</th>
                       <th className="px-5 py-3 font-medium">Interview</th>
@@ -203,15 +206,15 @@ function ResultsDashboardContent() {
                       <th className="px-5 py-3 font-medium">Result</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-slate-200">
                     {items.map((item) => (
-                      <tr className="hover:bg-slate-950/60" key={item.session_id}>
+                      <tr className="table-row" key={item.session_id}>
                         <td className="px-5 py-4">
-                          <p className="font-medium text-slate-100">{item.candidate_name}</p>
+                          <p className="font-medium text-slate-950">{item.candidate_name}</p>
                           <p className="mt-1 text-xs text-slate-500">{item.candidate_email}</p>
                         </td>
                         <td className="max-w-xs px-5 py-4">
-                          <p className="font-medium text-slate-200">{item.role_title}</p>
+                          <p className="font-medium text-slate-800">{item.role_title}</p>
                           <p className="mt-1 truncate text-xs text-slate-500">{item.scenario_title ?? "Scenario pending"}</p>
                         </td>
                         <td className="px-5 py-4">
@@ -227,21 +230,21 @@ function ResultsDashboardContent() {
                               <span className="text-xs text-slate-500">{item.test_attempt_count} run{item.test_attempt_count === 1 ? "" : "s"}</span>
                             </div>
                           ) : (
-                            <span className="text-slate-600">Not run</span>
+                            <span className="text-slate-400">Not run</span>
                           )}
                         </td>
                         <td className={`px-5 py-4 text-lg font-semibold ${scoreTone(item.weighted_score)}`}>
                           {item.weighted_score ?? "--"}
                         </td>
-                        <td className="px-5 py-4 text-slate-300">{recommendationLabel(item.recommendation)}</td>
-                        <td className="px-5 py-4 text-slate-400">{formatDateTime(item.submitted_at)}</td>
+                        <td className="px-5 py-4 text-slate-700">{recommendationLabel(item.recommendation)}</td>
+                        <td className="px-5 py-4 text-slate-600">{formatDateTime(item.submitted_at)}</td>
                         <td className="px-5 py-4">
                           {item.submission_id ? (
-                            <Link className="font-medium text-cyan-300 hover:text-cyan-200" href={`/results/${item.session_id}`}>
+                            <Link className="font-semibold text-blue-700 hover:text-blue-900" href={`/results/${item.session_id}`}>
                               View detail
                             </Link>
                           ) : (
-                            <span className="text-slate-600">Pending</span>
+                            <span className="text-slate-400">Pending</span>
                           )}
                         </td>
                       </tr>

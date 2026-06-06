@@ -47,9 +47,9 @@ export default function RegisterPage() {
     >
       <div>
         <div>
-          <p className="text-sm font-semibold uppercase text-cyan-300">Create account</p>
-          <h2 className="mt-2 text-3xl font-semibold">Set up your workspace</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Create account</p>
+          <h2 className="mt-2 text-3xl font-semibold text-slate-950">Set up your workspace</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
             This creates the first admin account for your organization.
           </p>
         </div>
@@ -91,7 +91,7 @@ export default function RegisterPage() {
             required
           />
           {error ? (
-            <p className="rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm leading-6 text-red-200">
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-6 text-rose-700">
               {error}
             </p>
           ) : null}
@@ -99,9 +99,9 @@ export default function RegisterPage() {
             {isSubmitting ? "Creating account..." : "Create account"}
           </Button>
         </form>
-        <p className="mt-6 text-sm text-slate-400">
+        <p className="mt-6 text-sm text-slate-600">
           Already registered?{" "}
-          <Link href="/login" className="font-medium text-cyan-300 hover:text-cyan-200">
+          <Link href="/login" className="font-medium text-blue-700 hover:text-blue-900">
             Log in
           </Link>
         </p>

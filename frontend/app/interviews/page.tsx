@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/app/app-shell";
 import {
   EmptyState,
   ErrorState,
   FormSection,
+  InfoTooltip,
   LoadingState,
   PageHeader,
   StatusBadge,
@@ -111,17 +112,17 @@ function SelectField({
   description,
 }: {
   id: string;
-  label: string;
+  label: ReactNode;
   value: string;
   options: string[];
   onChange: (value: string) => void;
   description?: string;
 }) {
   return (
-    <label className="grid gap-2 text-sm text-slate-200" htmlFor={id}>
-      <span>{label}</span>
+    <label className="grid gap-2 text-sm text-slate-700" htmlFor={id}>
+      <span className="inline-flex items-center gap-2 font-medium">{label}</span>
       <select
-        className="h-11 rounded-md border border-slate-700 bg-slate-950 px-3 text-slate-100 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+        className="h-11 rounded-lg border border-slate-300 bg-white px-3 text-slate-950 shadow-sm outline-none transition hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
         id={id}
         onChange={(event) => onChange(event.target.value)}
         value={value}
@@ -330,13 +331,13 @@ function InterviewsContent() {
 
       <section className="mt-6 grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
         <form
-          className="grid gap-4 rounded-md border border-slate-800 bg-slate-900/70 p-4"
+          className="grid gap-4 rounded-card border border-white/80 bg-white p-5 shadow-panel"
           id="create-interview"
           onSubmit={handleCreateInterview}
         >
           <div>
-            <h2 className="text-lg font-semibold text-slate-100">Create interview</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-400">
+            <h2 className="text-lg font-semibold text-slate-950">Create interview</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
               Configure the hiring signal. Scenario generation happens after creation so reviewers can inspect it first.
             </p>
           </div>
@@ -360,10 +361,10 @@ function InterviewsContent() {
           </FormSection>
 
           <FormSection title="Stack & Interview Type" description="Choose the technologies and shape of work the candidate will see.">
-            <label className="grid gap-2 text-sm text-slate-200" htmlFor="stack">
-              <span>Stack</span>
+            <label className="grid gap-2 text-sm text-slate-700" htmlFor="stack">
+              <span className="font-medium">Stack</span>
               <textarea
-                className="min-h-24 rounded-md border border-slate-700 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+                className="min-h-24 rounded-lg border border-slate-300 bg-white px-3 py-3 text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 id="stack"
                 onChange={(event) => updateField("stack", event.target.value)}
                 placeholder={STACK_OPTIONS.join(", ")}
@@ -404,7 +405,12 @@ function InterviewsContent() {
               />
               <SelectField
                 id="allowed_ai_mode"
-                label="Allowed AI mode"
+                label={
+                  <>
+                    Allowed AI mode
+                    <InfoTooltip content="Sets the assistant behavior available to candidates. The platform still evaluates whether they validate AI output and explain their choices." label="Allowed AI mode help" />
+                  </>
+                }
                 onChange={(value) => updateField("allowed_ai_mode", value)}
                 options={AI_MODE_OPTIONS}
                 value={form.allowed_ai_mode}
@@ -413,10 +419,10 @@ function InterviewsContent() {
           </FormSection>
 
           <FormSection title="Evaluation Settings" description="Use candidate-visible and reviewer-visible criteria, without prompt internals.">
-            <label className="grid gap-2 text-sm text-slate-200" htmlFor="evaluation_criteria">
-              <span>Evaluation criteria</span>
+            <label className="grid gap-2 text-sm text-slate-700" htmlFor="evaluation_criteria">
+              <span className="font-medium">Evaluation criteria</span>
               <textarea
-                className="min-h-36 rounded-md border border-slate-700 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+                className="min-h-36 rounded-lg border border-slate-300 bg-white px-3 py-3 text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 id="evaluation_criteria"
                 onChange={(event) => updateField("evaluation_criteria", event.target.value)}
                 required
@@ -428,7 +434,7 @@ function InterviewsContent() {
 
           {error ? <ErrorState message={error} /> : null}
           {successMessage ? (
-            <p className="rounded-md border border-emerald-900/70 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
               {successMessage}
             </p>
           ) : null}
@@ -438,17 +444,17 @@ function InterviewsContent() {
         </form>
 
         <div className="grid min-w-0 gap-3">
-          <section className="rounded-md border border-slate-800 bg-slate-900/70 px-3 py-3">
+          <section className="rounded-card border border-white/80 bg-white px-4 py-4 shadow-panel">
             <div className="grid gap-3 lg:grid-cols-[auto_minmax(260px,1fr)_180px] lg:items-center">
               <div className="min-w-0">
-                <h2 className="text-base font-semibold text-slate-100">Interview list</h2>
+                <h2 className="text-base font-semibold text-slate-950">Interview list</h2>
                 <p className="text-xs text-slate-500">{filteredInterviews.length} shown</p>
               </div>
               <div>
-                <label className="grid gap-2 text-sm text-slate-200" htmlFor="interview-search">
+                <label className="grid gap-2 text-sm text-slate-700" htmlFor="interview-search">
                   <span className="sr-only">Search interviews</span>
                   <input
-                    className="h-10 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                     id="interview-search"
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder="Search role, stack, type"
@@ -457,10 +463,10 @@ function InterviewsContent() {
                 </label>
               </div>
               <div>
-                <label className="grid gap-2 text-sm text-slate-200" htmlFor="status-filter">
+                <label className="grid gap-2 text-sm text-slate-700" htmlFor="status-filter">
                   <span className="sr-only">Filter by status</span>
                   <select
-                    className="h-10 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                     id="status-filter"
                     onChange={(event) => setStatusFilter(event.target.value)}
                     value={statusFilter}
@@ -492,10 +498,10 @@ function InterviewsContent() {
           ) : null}
 
           {filteredInterviews.length ? (
-            <section className="overflow-hidden rounded-md border border-slate-800 bg-slate-900/70">
+            <section className="overflow-hidden rounded-card border border-white/80 bg-white shadow-panel">
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-                  <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500">
+                <table className="table-surface">
+                  <thead className="table-head">
                     <tr>
                       <th className="px-4 py-3 font-medium">Title</th>
                       <th className="px-4 py-3 font-medium">Stack</th>
@@ -506,11 +512,11 @@ function InterviewsContent() {
                       <th className="px-4 py-3 font-medium">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-slate-200">
                     {filteredInterviews.map((interview) => (
-                      <tr className="hover:bg-slate-950/60" key={interview.id}>
+                      <tr className="table-row" key={interview.id}>
                         <td className="max-w-xs px-4 py-4">
-                          <p className="font-medium text-slate-100">{interview.scenario?.title ?? interview.role_title}</p>
+                          <p className="font-medium text-slate-950">{interview.scenario?.title ?? interview.role_title}</p>
                           <p className="mt-1 text-xs text-slate-500">
                             {interview.role_title} / {interview.interview_type} / {interview.duration_minutes} min
                           </p>
@@ -518,25 +524,25 @@ function InterviewsContent() {
                         <td className="px-4 py-4">
                           <div className="flex max-w-sm flex-wrap gap-1.5">
                             {interview.stack.slice(0, 4).map((item) => (
-                              <span className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300" key={item}>
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600" key={item}>
                                 {item}
                               </span>
                             ))}
                             {interview.stack.length > 4 ? <span className="text-xs text-slate-500">+{interview.stack.length - 4}</span> : null}
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-slate-300">
+                        <td className="px-4 py-4 text-slate-700">
                           {interview.seniority} / {interview.difficulty}
                         </td>
                         <td className="px-4 py-4">
                           <StatusBadge label={interview.status} tone={statusTone(interview.status)} />
                         </td>
-                        <td className="px-4 py-4 text-slate-300">{sessionCounts.get(interview.id) ?? 0}</td>
-                        <td className="px-4 py-4 text-slate-400">{formatDate(interview.created_at)}</td>
+                        <td className="px-4 py-4 text-slate-700">{sessionCounts.get(interview.id) ?? 0}</td>
+                        <td className="px-4 py-4 text-slate-600">{formatDate(interview.created_at)}</td>
                         <td className="px-4 py-4">
                           <div className="flex flex-wrap gap-2">
                             <Link
-                              className="inline-flex h-9 items-center justify-center rounded-md border border-slate-700 px-3 text-xs font-medium text-slate-200 hover:border-cyan-500 hover:text-cyan-200"
+                              className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"
                               href={`/interviews/${interview.id}`}
                             >
                               Details
@@ -556,7 +562,7 @@ function InterviewsContent() {
                               disabled={deletingId === interview.id}
                               onClick={() => void handleDeleteInterview(interview)}
                               type="button"
-                              variant="secondary"
+                              variant="danger"
                             >
                               {deletingId === interview.id ? "Deleting..." : "Delete"}
                             </Button>

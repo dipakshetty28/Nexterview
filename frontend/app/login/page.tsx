@@ -42,9 +42,9 @@ function LoginForm() {
     >
       <div>
         <div>
-          <p className="text-sm font-semibold uppercase text-cyan-300">Log in</p>
-          <h2 className="mt-2 text-3xl font-semibold">Access your organization</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Log in</p>
+          <h2 className="mt-2 text-3xl font-semibold text-slate-950">Access your organization</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
             Use the account assigned to your role. Candidate sessions continue from invite links.
           </p>
         </div>
@@ -68,7 +68,7 @@ function LoginForm() {
             required
           />
           {error ? (
-            <p className="rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm leading-6 text-red-200">
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-6 text-rose-700">
               {error}
             </p>
           ) : null}
@@ -76,9 +76,9 @@ function LoginForm() {
             {isSubmitting ? "Signing in..." : "Log in"}
           </Button>
         </form>
-        <p className="mt-6 text-sm text-slate-400">
+        <p className="mt-6 text-sm text-slate-600">
           New organization?{" "}
-          <Link href="/register" className="font-medium text-cyan-300 hover:text-cyan-200">
+          <Link href="/register" className="font-medium text-blue-700 hover:text-blue-900">
             Create account
           </Link>
         </p>
@@ -91,7 +91,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-300">
+        <main className="app-page-bg flex min-h-screen items-center justify-center px-6 text-slate-700">
           <div className="w-full max-w-md">
             <LoadingState label="Preparing login" rows={2} />
           </div>
