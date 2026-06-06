@@ -5,10 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/app/app-shell";
 import {
+  ActionButton,
   EmptyState,
   ErrorState,
   LoadingState,
   PageHeader,
+  SectionHeader,
   StatCard,
   StatusBadge,
   formatDateTime,
@@ -108,12 +110,9 @@ function DashboardContent() {
     <AppShell>
       <PageHeader
         actions={
-          <Link
-            className="inline-flex h-10 items-center justify-center rounded-md bg-cyan-400 px-4 text-sm font-medium text-slate-950 transition hover:bg-cyan-300"
-            href="/interviews"
-          >
+          <ActionButton href="/interviews">
             Create interview
-          </Link>
+          </ActionButton>
         }
         description="Monitor interview activity, review readiness, and candidate outcomes for your organization."
         eyebrow={dashboard?.organizations[0]?.organization.name ?? "Hiring workspace"}
@@ -140,15 +139,17 @@ function DashboardContent() {
           />
         ) : null}
 
-        <section className="grid gap-4 rounded-md border border-slate-800 bg-slate-900/70">
-          <div className="flex flex-col gap-2 border-b border-slate-800 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-100">Recent candidate sessions</h2>
-              <p className="mt-1 text-sm text-slate-400">Latest submitted or reviewed sessions across your organization.</p>
-            </div>
-            <Link className="text-sm font-medium text-cyan-300 hover:text-cyan-200" href="/results">
-              View all results
-            </Link>
+        <section className="grid gap-4 overflow-hidden rounded-card border border-white/80 bg-white shadow-panel">
+          <div className="border-b border-slate-200 px-5 py-4">
+            <SectionHeader
+              aside={
+                <Link className="text-sm font-semibold text-blue-700 hover:text-blue-900" href="/results">
+                  View all results
+                </Link>
+              }
+              description="Latest submitted or reviewed sessions across your organization."
+              title="Recent candidate sessions"
+            />
           </div>
 
           {!isLoading && recentSessions.length === 0 ? (
@@ -164,8 +165,8 @@ function DashboardContent() {
 
           {recentSessions.length ? (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-                <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500">
+              <table className="table-surface">
+                <thead className="table-head">
                   <tr>
                     <th className="px-5 py-3 font-medium">Candidate</th>
                     <th className="px-5 py-3 font-medium">Interview</th>
@@ -175,29 +176,29 @@ function DashboardContent() {
                     <th className="px-5 py-3 font-medium">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-slate-200">
                   {recentSessions.map((session) => (
-                    <tr className="hover:bg-slate-950/60" key={session.session_id}>
+                    <tr className="table-row" key={session.session_id}>
                       <td className="px-5 py-4">
-                        <p className="font-medium text-slate-100">{session.candidate_name}</p>
+                        <p className="font-medium text-slate-950">{session.candidate_name}</p>
                         <p className="mt-1 text-xs text-slate-500">{session.candidate_email}</p>
                       </td>
                       <td className="max-w-xs px-5 py-4">
-                        <p className="font-medium text-slate-200">{session.role_title}</p>
+                        <p className="font-medium text-slate-800">{session.role_title}</p>
                         <p className="mt-1 truncate text-xs text-slate-500">{session.scenario_title ?? "Scenario pending"}</p>
                       </td>
                       <td className="px-5 py-4">
                         <StatusBadge label={session.status} tone={statusTone(session.status)} />
                       </td>
-                      <td className="px-5 py-4 text-slate-200">{session.weighted_score ?? "--"}</td>
-                      <td className="px-5 py-4 text-slate-400">{formatDateTime(session.reviewed_at ?? session.submitted_at)}</td>
+                      <td className="px-5 py-4 text-slate-800">{session.weighted_score ?? "--"}</td>
+                      <td className="px-5 py-4 text-slate-600">{formatDateTime(session.reviewed_at ?? session.submitted_at)}</td>
                       <td className="px-5 py-4">
                         {session.submission_id ? (
-                          <Link className="font-medium text-cyan-300 hover:text-cyan-200" href={`/results/${session.session_id}`}>
+                          <Link className="font-semibold text-blue-700 hover:text-blue-900" href={`/results/${session.session_id}`}>
                             Review
                           </Link>
                         ) : (
-                          <span className="text-slate-600">Pending</span>
+                          <span className="text-slate-400">Pending</span>
                         )}
                       </td>
                     </tr>

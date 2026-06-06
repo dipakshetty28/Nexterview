@@ -3,13 +3,15 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "icon";
 };
 
 const variants = {
-  primary: "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
-  secondary: "border border-slate-700 bg-slate-900 text-slate-100 hover:border-slate-500",
-  ghost: "text-slate-300 hover:bg-slate-900 hover:text-white",
+  primary: "border border-blue-700 bg-blue-600 text-white shadow-sm shadow-blue-900/15 hover:bg-blue-700",
+  secondary: "border border-slate-300 bg-white text-slate-800 shadow-sm hover:border-slate-400 hover:bg-slate-50",
+  ghost: "text-slate-700 hover:bg-slate-100 hover:text-slate-950",
+  danger: "border border-rose-600 bg-rose-600 text-white shadow-sm shadow-rose-900/15 hover:bg-rose-700",
+  icon: "border border-slate-300 bg-white text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50",
 };
 
 export function Button({
@@ -25,7 +27,8 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60 disabled:cursor-not-allowed disabled:opacity-60",
+        "inline-flex h-11 items-center justify-center rounded-lg px-4 text-sm font-semibold outline-none transition disabled:cursor-not-allowed disabled:opacity-55",
+        variant === "icon" && "h-10 w-10 px-0",
         variants[variant],
         className,
       )}

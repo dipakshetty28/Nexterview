@@ -57,49 +57,49 @@ function recommendationLabel(value: string): string {
 function recommendationTone(value: string): string {
   const normalized = value.toLowerCase().replace(/[_-]+/g, " ");
   if (normalized === "strong hire") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-100";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (normalized === "hire") {
-    return "border-cyan-800 bg-cyan-950/60 text-cyan-100";
+    return "border-blue-200 bg-blue-50 text-blue-700";
   }
   if (normalized === "lean hire") {
-    return "border-sky-800 bg-sky-950/60 text-sky-100";
+    return "border-sky-200 bg-sky-50 text-sky-700";
   }
   if (normalized === "lean no hire") {
-    return "border-amber-800 bg-amber-950/60 text-amber-100";
+    return "border-amber-200 bg-amber-50 text-amber-800";
   }
   if (normalized === "no hire") {
-    return "border-rose-800 bg-rose-950/60 text-rose-100";
+    return "border-rose-200 bg-rose-50 text-rose-700";
   }
-  return "border-slate-700 bg-slate-900 text-slate-200";
+  return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
 function scoreTone(score: number): string {
   if (score >= 80) {
-    return "border-emerald-900/70 bg-emerald-950/30 text-emerald-200";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (score >= 65) {
-    return "border-cyan-900/70 bg-cyan-950/30 text-cyan-200";
+    return "border-blue-200 bg-blue-50 text-blue-700";
   }
   if (score >= 50) {
-    return "border-amber-900/70 bg-amber-950/30 text-amber-200";
+    return "border-amber-200 bg-amber-50 text-amber-800";
   }
-  return "border-rose-900/70 bg-rose-950/30 text-rose-200";
+  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
 function tierTone(tier: CalibrationSession["tier"]): string {
   if (tier === "strong") {
-    return "border-emerald-900/70 bg-emerald-950/20 text-emerald-200";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (tier === "average") {
-    return "border-cyan-900/70 bg-cyan-950/20 text-cyan-200";
+    return "border-blue-200 bg-blue-50 text-blue-700";
   }
-  return "border-rose-900/70 bg-rose-950/20 text-rose-200";
+  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
 function RecommendationBadge({ recommendation }: { recommendation: string }) {
   return (
-    <span className={cn("inline-flex h-8 items-center rounded-md border px-3 text-sm font-semibold", recommendationTone(recommendation))}>
+    <span className={cn("inline-flex h-8 items-center rounded-full border px-3 text-sm font-semibold", recommendationTone(recommendation))}>
       {recommendationLabel(recommendation)}
     </span>
   );
@@ -115,9 +115,9 @@ function SectionPanel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
-      <h2 className="text-lg font-semibold text-slate-50">{title}</h2>
-      {description ? <p className="mt-1 text-sm leading-6 text-slate-400">{description}</p> : null}
+    <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
+      <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+      {description ? <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p> : null}
       <div className="mt-5">{children}</div>
     </section>
   );
@@ -127,9 +127,9 @@ function TextList({ items, title }: { items: string[]; title: string }) {
   return (
     <div>
       <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
-      <ul className="mt-2 grid gap-2 text-sm leading-6 text-slate-300">
+      <ul className="mt-2 grid gap-2 text-sm leading-6 text-slate-700">
         {items.map((item) => (
-          <li className="rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2" key={item}>
+          <li className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2" key={item}>
             {sanitizeDisplayText(item)}
           </li>
         ))}
@@ -155,23 +155,23 @@ function CalibrationSelector({
           <button
             aria-pressed={isSelected}
             className={cn(
-              "rounded-md border p-4 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
-              isSelected ? "border-cyan-500 bg-slate-900" : "border-slate-800 bg-slate-900/60 hover:border-slate-600",
+              "rounded-card border p-4 text-left shadow-panel outline-none transition",
+              isSelected ? "border-blue-300 bg-white ring-2 ring-blue-100" : "border-white/80 bg-white/80 hover:border-blue-200 hover:bg-white",
             )}
             key={session.id}
             onClick={() => onSelect(session.id)}
             type="button"
           >
             <div className="flex items-start justify-between gap-3">
-              <span className={cn("rounded-md border px-2.5 py-1 text-xs font-semibold", tierTone(session.tier))}>
+              <span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", tierTone(session.tier))}>
                 {TIER_LABELS[session.tier]}
               </span>
-              <span className={cn("rounded-md border px-2.5 py-1 text-sm font-semibold", scoreTone(session.final_score))}>
+              <span className={cn("rounded-full border px-2.5 py-1 text-sm font-semibold", scoreTone(session.final_score))}>
                 {session.final_score}
               </span>
             </div>
-            <h2 className="mt-4 text-base font-semibold text-slate-100">{session.candidate_name}</h2>
-            <p className="mt-1 text-sm text-slate-400">{session.scenario_title}</p>
+            <h2 className="mt-4 text-base font-semibold text-slate-950">{session.candidate_name}</h2>
+            <p className="mt-1 text-sm text-slate-600">{session.scenario_title}</p>
             <div className="mt-3">
               <RecommendationBadge recommendation={session.recommendation} />
             </div>
@@ -186,32 +186,32 @@ function OverviewTab({ session }: { session: CalibrationSession }) {
   return (
     <div className="grid gap-5">
       <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
+        <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Final recommendation</p>
           <div className="mt-3">
             <RecommendationBadge recommendation={session.recommendation} />
           </div>
-          <p className="mt-4 text-5xl font-semibold text-slate-50">{session.final_score}</p>
-          <p className="mt-2 text-sm leading-6 text-slate-400">{sanitizeDisplayText(session.review_summary)}</p>
+          <p className="mt-4 text-5xl font-semibold text-slate-950">{session.final_score}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{sanitizeDisplayText(session.review_summary)}</p>
         </section>
 
-        <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
+        <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-cyan-200">{session.role_title}</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-50">{session.scenario_title}</h2>
-              <p className="mt-2 text-sm text-slate-400">{session.candidate_name}</p>
+              <p className="text-sm font-medium text-blue-700">{session.role_title}</p>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">{session.scenario_title}</h2>
+              <p className="mt-2 text-sm text-slate-600">{session.candidate_name}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <StatusBadge label={session.status} tone={statusTone(session.status)} />
               <StatusBadge label={session.ai_mode} tone="info" />
             </div>
           </div>
-          <div className="mt-5 rounded-md border border-slate-800 bg-slate-950/70 p-4">
+          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50/90 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-slate-100">Validation result</h3>
-                <p className="mt-1 text-sm text-slate-400">{sanitizeDisplayText(session.test_result.summary)}</p>
+                <h3 className="text-sm font-semibold text-slate-950">Validation result</h3>
+                <p className="mt-1 text-sm text-slate-600">{sanitizeDisplayText(session.test_result.summary)}</p>
               </div>
               <StatusBadge
                 label={`${session.test_result.passed_count}/${session.test_result.passed_count + session.test_result.failed_count} passed`}
@@ -246,16 +246,16 @@ function OverviewTab({ session }: { session: CalibrationSession }) {
 
 function AgentReviewCard({ review }: { review: CalibrationAgentReview }) {
   return (
-    <article className="grid gap-4 rounded-md border border-slate-800 bg-slate-900/70 p-5">
+    <article className="grid gap-4 rounded-card border border-white/80 bg-white p-5 shadow-panel">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{review.agent_type.replace(/_/g, " ")}</p>
-          <h3 className="mt-1 text-base font-semibold text-slate-100">{review.agent_label}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-400">{sanitizeDisplayText(review.summary)}</p>
+          <h3 className="mt-1 text-base font-semibold text-slate-950">{review.agent_label}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{sanitizeDisplayText(review.summary)}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <RecommendationBadge recommendation={review.recommendation} />
-          <span className={cn("rounded-md border px-3 py-1 text-sm font-semibold", scoreTone(review.score))}>
+          <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", scoreTone(review.score))}>
             Score {review.score}
           </span>
         </div>
@@ -341,15 +341,15 @@ function TabBar({
   onTabChange: (tab: CalibrationTab) => void;
 }) {
   return (
-    <div className="overflow-x-auto border-b border-slate-800">
+    <div className="overflow-x-auto rounded-card border border-white/80 bg-white p-1 shadow-panel">
       <div className="flex min-w-max gap-1">
         {TABS.map((tab) => (
           <button
             className={cn(
-              "h-11 rounded-t-md px-4 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
+              "h-10 rounded-lg px-4 text-sm font-semibold outline-none transition",
               activeTab === tab.id
-                ? "bg-slate-900 text-cyan-200"
-                : "text-slate-400 hover:bg-slate-900/70 hover:text-slate-100",
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
             )}
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
@@ -439,7 +439,7 @@ function CalibrationContent() {
       <PageHeader
         actions={
           <Link
-            className="inline-flex h-10 items-center justify-center rounded-md border border-slate-700 px-4 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
             href="/results"
           >
             View real results
@@ -472,21 +472,21 @@ function CalibrationContent() {
 
         {selectedSession ? (
           <section className="grid gap-5">
-            <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
+            <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn("rounded-md border px-2.5 py-1 text-xs font-semibold", tierTone(selectedSession.tier))}>
+                    <span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", tierTone(selectedSession.tier))}>
                       {TIER_LABELS[selectedSession.tier]}
                     </span>
                     <RecommendationBadge recommendation={selectedSession.recommendation} />
                   </div>
-                  <h2 className="mt-4 text-2xl font-semibold text-slate-50">{selectedSession.scenario_title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                  <h2 className="mt-4 text-2xl font-semibold text-slate-950">{selectedSession.scenario_title}</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
                     {selectedSession.role_title} / {selectedSession.candidate_name}
                   </p>
                 </div>
-                <div className={cn("w-fit rounded-md border px-4 py-3", scoreTone(selectedSession.final_score))}>
+                <div className={cn("w-fit rounded-lg border px-4 py-3", scoreTone(selectedSession.final_score))}>
                   <p className="text-xs uppercase tracking-wide opacity-80">Overall score</p>
                   <p className="mt-1 text-2xl font-semibold">{selectedSession.final_score}</p>
                 </div>

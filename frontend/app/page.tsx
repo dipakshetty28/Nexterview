@@ -41,7 +41,7 @@ const USERS = [
 
 function ProductPreview() {
   return (
-    <div className="mx-auto mt-10 max-w-5xl overflow-hidden rounded-md border border-slate-800 bg-slate-950 shadow-2xl shadow-slate-950">
+    <div className="mx-auto mt-10 max-w-5xl overflow-hidden rounded-card border border-slate-800 bg-slate-950 shadow-elevated">
       <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 py-3">
         <div>
           <p className="text-xs font-semibold uppercase text-cyan-300">Live candidate session</p>
@@ -106,36 +106,36 @@ function ProductPreview() {
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
+    <main className="app-page-bg min-h-screen text-slate-950">
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <Link href="/" className="text-lg font-semibold">
+        <Link href="/" className="text-lg font-semibold text-blue-700">
           Nexterview
         </Link>
         <div className="flex items-center gap-2">
-          <Link className="rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-900 hover:text-white" href="/login">
+          <Link className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-white hover:text-slate-950" href="/login">
             Log in
           </Link>
-          <Link className="rounded-md bg-cyan-400 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-300" href="/register">
+          <Link className="rounded-lg border border-blue-700 bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700" href="/register">
             Create account
           </Link>
         </div>
       </nav>
 
-      <section className="border-y border-slate-800 bg-slate-900/30 px-6 py-16">
+      <section className="border-y border-white/80 bg-white/60 px-6 py-16 shadow-sm backdrop-blur">
         <div className="mx-auto max-w-6xl text-center">
-          <p className="mx-auto w-fit rounded-md border border-cyan-800 bg-cyan-950/50 px-3 py-1 text-sm text-cyan-200">
+          <p className="mx-auto w-fit rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
             AI-era engineering evaluation
           </p>
-          <h1 className="mx-auto mt-6 max-w-4xl text-4xl font-semibold sm:text-6xl">Nexterview</h1>
-          <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-slate-300">
+          <h1 className="mx-auto mt-6 max-w-4xl text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl">Nexterview</h1>
+          <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-slate-600">
             Evaluate realistic engineering work where AI is allowed, but judgment, validation, debugging discipline,
             and communication decide the signal.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link className="rounded-md bg-cyan-400 px-5 py-3 text-sm font-medium text-slate-950 hover:bg-cyan-300" href="/register">
+            <Link className="rounded-lg border border-blue-700 bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700" href="/register">
               Start an organization
             </Link>
-            <Link className="rounded-md border border-slate-700 px-5 py-3 text-sm font-medium text-slate-100 hover:border-slate-500" href="/login">
+            <Link className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm hover:border-slate-400 hover:bg-slate-50" href="/login">
               Open dashboard
             </Link>
           </div>
@@ -145,25 +145,25 @@ export default function Home() {
 
       <section className="mx-auto grid max-w-6xl gap-8 px-6 py-14 lg:grid-cols-[0.8fr_1.2fr]">
         <div>
-          <p className="text-sm font-semibold uppercase text-cyan-300">Problem</p>
-          <h2 className="mt-3 text-3xl font-semibold">Coding screens have not caught up with AI-assisted work.</h2>
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Problem</p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Coding screens have not caught up with AI-assisted work.</h2>
         </div>
-        <p className="text-base leading-8 text-slate-300">
+        <p className="text-base leading-8 text-slate-600">
           Modern engineers use AI, tests, logs, docs, and code review to solve real problems. Nexterview turns that
           workflow into structured evidence: what candidates asked, what they changed, how they validated it, and how
           well they explained the result.
         </p>
       </section>
 
-      <section className="border-y border-slate-800 bg-slate-900/30 px-6 py-14">
+      <section className="border-y border-white/80 bg-white/60 px-6 py-14 shadow-sm backdrop-blur">
         <div className="mx-auto max-w-6xl">
-          <p className="text-sm font-semibold uppercase text-cyan-300">How it works</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">How it works</p>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             {WORKFLOW_STEPS.map((step, index) => (
-              <section className="rounded-md border border-slate-800 bg-slate-950 p-5" key={step.title}>
-                <span className="font-mono text-sm text-cyan-300">0{index + 1}</span>
-                <h3 className="mt-4 text-lg font-semibold">{step.title}</h3>
-                <p className="mt-3 text-sm leading-6 text-slate-400">{step.description}</p>
+              <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel" key={step.title}>
+                <span className="font-mono text-sm text-blue-700">0{index + 1}</span>
+                <h3 className="mt-4 text-lg font-semibold text-slate-950">{step.title}</h3>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{step.description}</p>
               </section>
             ))}
           </div>
@@ -173,12 +173,12 @@ export default function Home() {
       <section className="mx-auto max-w-6xl px-6 py-14">
         <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr]">
           <div>
-            <p className="text-sm font-semibold uppercase text-cyan-300">Key features</p>
-            <h2 className="mt-3 text-3xl font-semibold">A full hiring signal from code, AI usage, and validation evidence.</h2>
+            <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Key features</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">A full hiring signal from code, AI usage, and validation evidence.</h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {FEATURES.map((feature) => (
-              <div className="rounded-md border border-slate-800 bg-slate-900/60 p-4 text-sm leading-6 text-slate-300" key={feature}>
+              <div className="rounded-card border border-white/80 bg-white p-4 text-sm leading-6 text-slate-700 shadow-panel" key={feature}>
                 {feature}
               </div>
             ))}
@@ -186,29 +186,29 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="border-t border-slate-800 px-6 py-14">
+      <section className="border-t border-white/80 px-6 py-14">
         <div className="mx-auto max-w-6xl">
-          <p className="text-sm font-semibold uppercase text-cyan-300">Built for</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Built for</p>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             {USERS.map((user) => (
-              <section className="rounded-md border border-slate-800 bg-slate-900/60 p-5" key={user.title}>
-                <h3 className="text-lg font-semibold">{user.title}</h3>
-                <p className="mt-3 text-sm leading-6 text-slate-400">{user.description}</p>
+              <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel" key={user.title}>
+                <h3 className="text-lg font-semibold text-slate-950">{user.title}</h3>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{user.description}</p>
               </section>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="border-t border-slate-800 bg-slate-900/40 px-6 py-12">
+      <section className="border-t border-white/80 bg-white/70 px-6 py-12 shadow-sm backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-2xl font-semibold">Ready to evaluate AI-era engineering skill?</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
+            <h2 className="text-2xl font-semibold text-slate-950">Ready to evaluate AI-era engineering skill?</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
               Create an organization, generate a realistic task, and review the evidence from a candidate session.
             </p>
           </div>
-          <Link className="w-fit rounded-md bg-cyan-400 px-5 py-3 text-sm font-medium text-slate-950 hover:bg-cyan-300" href="/register">
+          <Link className="w-fit rounded-lg border border-blue-700 bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700" href="/register">
             Create account
           </Link>
         </div>

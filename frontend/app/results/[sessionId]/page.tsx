@@ -103,37 +103,37 @@ function recommendationLabel(value: string | null | undefined): string {
 function recommendationTone(value: string | null | undefined): string {
   const normalized = normalizedRecommendation(value);
   if (normalized === "strong hire") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-100";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (normalized === "hire") {
-    return "border-cyan-800 bg-cyan-950/60 text-cyan-100";
+    return "border-blue-200 bg-blue-50 text-blue-700";
   }
   if (normalized === "lean hire") {
-    return "border-sky-800 bg-sky-950/60 text-sky-100";
+    return "border-sky-200 bg-sky-50 text-sky-700";
   }
   if (normalized === "lean no hire") {
-    return "border-amber-800 bg-amber-950/60 text-amber-100";
+    return "border-amber-200 bg-amber-50 text-amber-800";
   }
   if (normalized === "no hire") {
-    return "border-rose-800 bg-rose-950/60 text-rose-100";
+    return "border-rose-200 bg-rose-50 text-rose-700";
   }
-  return "border-slate-700 bg-slate-900 text-slate-200";
+  return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
 function scoreTone(score: number | null | undefined): string {
   if (score === null || score === undefined) {
-    return "border-slate-700 bg-slate-950 text-slate-300";
+    return "border-slate-200 bg-slate-100 text-slate-600";
   }
   if (score >= 80) {
-    return "border-emerald-900/70 bg-emerald-950/30 text-emerald-200";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (score >= 65) {
-    return "border-cyan-900/70 bg-cyan-950/30 text-cyan-200";
+    return "border-blue-200 bg-blue-50 text-blue-700";
   }
   if (score >= 50) {
-    return "border-amber-900/70 bg-amber-950/30 text-amber-200";
+    return "border-amber-200 bg-amber-50 text-amber-800";
   }
-  return "border-rose-900/70 bg-rose-950/30 text-rose-200";
+  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
 function scoreLabel(item: ScoreBreakdownItem): string {
@@ -152,11 +152,11 @@ function SectionPanel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
+    <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-50">{title}</h2>
-          {description ? <p className="mt-1 text-sm leading-6 text-slate-400">{description}</p> : null}
+          <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+          {description ? <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p> : null}
         </div>
         {aside ? <div className="shrink-0">{aside}</div> : null}
       </div>
@@ -167,7 +167,7 @@ function SectionPanel({
 
 function RecommendationBadge({ recommendation }: { recommendation: string | null | undefined }) {
   return (
-    <span className={cn("inline-flex h-8 items-center rounded-md border px-3 text-sm font-semibold", recommendationTone(recommendation))}>
+    <span className={cn("inline-flex h-8 items-center rounded-full border px-3 text-sm font-semibold", recommendationTone(recommendation))}>
       {recommendationLabel(recommendation)}
     </span>
   );
@@ -175,27 +175,27 @@ function RecommendationBadge({ recommendation }: { recommendation: string | null
 
 function MiniMetric({ label, value, description }: { label: string; value: string | number; description?: string }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950/70 p-3">
+    <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-2 text-xl font-semibold text-slate-50">{value}</p>
-      {description ? <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p> : null}
+      <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
+      {description ? <p className="mt-1 text-xs leading-5 text-slate-600">{description}</p> : null}
     </div>
   );
 }
 
 const markdownComponents: Components = {
-  h1: ({ children }) => <h1 className="mb-3 mt-4 text-lg font-semibold text-slate-50 first:mt-0">{children}</h1>,
-  h2: ({ children }) => <h2 className="mb-2 mt-4 text-base font-semibold text-slate-50 first:mt-0">{children}</h2>,
-  h3: ({ children }) => <h3 className="mb-2 mt-3 text-sm font-semibold text-slate-100 first:mt-0">{children}</h3>,
-  p: ({ children }) => <p className="my-2 leading-6 text-slate-300">{children}</p>,
-  ul: ({ children }) => <ul className="my-2 ml-5 list-disc space-y-1 text-slate-300">{children}</ul>,
-  ol: ({ children }) => <ol className="my-2 ml-5 list-decimal space-y-1 text-slate-300">{children}</ol>,
+  h1: ({ children }) => <h1 className="mb-3 mt-4 text-lg font-semibold text-slate-950 first:mt-0">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-2 mt-4 text-base font-semibold text-slate-950 first:mt-0">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-2 mt-3 text-sm font-semibold text-slate-900 first:mt-0">{children}</h3>,
+  p: ({ children }) => <p className="my-2 leading-6 text-slate-700">{children}</p>,
+  ul: ({ children }) => <ul className="my-2 ml-5 list-disc space-y-1 text-slate-700">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 ml-5 list-decimal space-y-1 text-slate-700">{children}</ol>,
   li: ({ children }) => <li className="leading-6">{children}</li>,
   blockquote: ({ children }) => (
-    <blockquote className="my-3 border-l-2 border-cyan-700 pl-3 text-sm text-slate-300">{children}</blockquote>
+    <blockquote className="my-3 border-l-2 border-blue-300 pl-3 text-sm text-slate-700">{children}</blockquote>
   ),
   a: ({ children, href }) => (
-    <a className="text-cyan-300 underline-offset-4 hover:underline" href={href} rel="noreferrer" target="_blank">
+    <a className="text-blue-700 underline-offset-4 hover:underline" href={href} rel="noreferrer" target="_blank">
       {children}
     </a>
   ),
@@ -211,7 +211,7 @@ const markdownComponents: Components = {
         className={cn(
           isBlock
             ? "block whitespace-pre font-mono text-xs text-slate-200"
-            : "rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 font-mono text-[0.85em] text-cyan-100",
+            : "rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] text-blue-700",
         )}
       >
         {children}
@@ -236,7 +236,7 @@ function TextList({ title, items }: { title: string; items: string[] }) {
   return (
     <div>
       <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h4>
-      <ul className="mt-2 grid gap-1 text-sm leading-6 text-slate-300">
+      <ul className="mt-2 grid gap-1 text-sm leading-6 text-slate-700">
         {items.length ? (
           items.map((item) => <li key={item}>{sanitizeDisplayText(item)}</li>)
         ) : (
@@ -311,22 +311,22 @@ function ScoreBreakdown({ result }: { result: SessionResult }) {
           <div className="h-80 min-w-0">
             <ResponsiveContainer height="100%" width="100%">
               <BarChart data={chartData} margin={{ bottom: 24, left: -16, right: 8, top: 8 }}>
-                <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
-                <XAxis angle={-18} dataKey="name" height={62} interval={0} stroke="#94a3b8" textAnchor="end" tick={{ fontSize: 11 }} />
-                <YAxis domain={[0, 100]} stroke="#94a3b8" />
-                <Tooltip contentStyle={{ background: "#020617", border: "1px solid #334155", color: "#e2e8f0" }} />
-                <Bar dataKey="score" fill="#22d3ee" radius={[4, 4, 0, 0]} />
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <XAxis angle={-18} dataKey="name" height={62} interval={0} stroke="#64748b" textAnchor="end" tick={{ fontSize: 11 }} />
+                <YAxis domain={[0, 100]} stroke="#64748b" />
+                <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", color: "#0f172a", borderRadius: "12px" }} />
+                <Bar dataKey="score" fill="#2563eb" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
           <div className="grid content-start gap-2">
             {result.score_breakdown.map((item) => (
-              <div className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-slate-800 bg-slate-950/70 p-3" key={item.agent_type}>
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/90 p-3" key={item.agent_type}>
                 <div>
-                  <p className="text-sm font-medium text-slate-100">{scoreLabel(item)}</p>
+                  <p className="text-sm font-medium text-slate-900">{scoreLabel(item)}</p>
                   <p className="text-xs text-slate-500">Weight {item.weight}%</p>
                 </div>
-                <span className={cn("rounded-md border px-2.5 py-1 text-sm font-semibold", scoreTone(item.score))}>
+                <span className={cn("rounded-full border px-2.5 py-1 text-sm font-semibold", scoreTone(item.score))}>
                   {item.score ?? "--"}
                 </span>
               </div>
@@ -344,23 +344,23 @@ function ResultOverview({ result }: { result: SessionResult }) {
   return (
     <div className="grid gap-5">
       <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
+        <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Final Recommendation</p>
           <div className="mt-3">
             <RecommendationBadge recommendation={result.recommendation} />
           </div>
-          <p className="mt-4 text-5xl font-semibold text-slate-50">{result.weighted_score ?? "--"}</p>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
+          <p className="mt-4 text-5xl font-semibold text-slate-950">{result.weighted_score ?? "--"}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
             Overall weighted score from agent reviews. Pending submissions stay unscored until review is complete.
           </p>
         </section>
 
-        <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
+        <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <p className="text-sm font-medium text-cyan-200">{result.role_title}</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-50">{result.scenario_title}</h2>
-              <p className="mt-2 text-sm text-slate-400">
+              <p className="text-sm font-medium text-blue-700">{result.role_title}</p>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">{result.scenario_title}</h2>
+              <p className="mt-2 text-sm text-slate-600">
                 {result.candidate_name} / {result.candidate_email}
               </p>
             </div>
@@ -384,8 +384,8 @@ function ResultOverview({ result }: { result: SessionResult }) {
             <MiniMetric label="Attempts" value={result.test_runs.length} />
             <MiniMetric label="First Run" value={result.test_runs[0]?.status ?? "n/a"} />
             <MiniMetric label="Final Run" value={result.test_runs[result.test_runs.length - 1]?.status ?? "n/a"} />
-            <div className="md:col-span-3 overflow-x-auto rounded-md border border-slate-800 bg-slate-950">
-              <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/70 md:col-span-3">
+              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-3 py-2 font-medium">When</th>
@@ -395,18 +395,18 @@ function ResultOverview({ result }: { result: SessionResult }) {
                     <th className="px-3 py-2 font-medium">Summary</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-slate-200">
                   {result.test_runs.map((run) => (
                     <tr key={run.id}>
-                      <td className="px-3 py-2 text-slate-400">{formatDateTime(run.created_at)}</td>
+                      <td className="px-3 py-2 text-slate-600">{formatDateTime(run.created_at)}</td>
                       <td className="px-3 py-2">
                         <StatusBadge label={run.status} tone={run.status === "passed" ? "success" : "warning"} />
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs text-cyan-100">{sanitizeDisplayText(run.command)}</td>
-                      <td className="px-3 py-2 text-slate-300">
+                      <td className="px-3 py-2 font-mono text-xs text-blue-700">{sanitizeDisplayText(run.command)}</td>
+                      <td className="px-3 py-2 text-slate-700">
                         {run.passed_count}/{run.total_count} passed
                       </td>
-                      <td className="max-w-sm px-3 py-2 text-slate-400">{sanitizeDisplayText(run.failure_summary) || "All checks passed."}</td>
+                      <td className="max-w-sm px-3 py-2 text-slate-600">{sanitizeDisplayText(run.failure_summary) || "All checks passed."}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -457,16 +457,16 @@ function ResultOverview({ result }: { result: SessionResult }) {
 
 function AgentReviewCard({ review }: { review: AgentReview }) {
   return (
-    <section className="grid gap-4 rounded-md border border-slate-800 bg-slate-900/70 p-5">
+    <section className="grid gap-4 rounded-card border border-white/80 bg-white p-5 shadow-panel">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{review.agent_type.replace(/_/g, " ")}</p>
-          <h3 className="mt-1 text-base font-semibold text-slate-100">{review.agent_label}</h3>
+          <h3 className="mt-1 text-base font-semibold text-slate-950">{review.agent_label}</h3>
           <div className="mt-3">
             <RecommendationBadge recommendation={review.recommendation} />
           </div>
         </div>
-        <span className={cn("w-fit rounded-md border px-3 py-1 text-sm font-semibold", scoreTone(review.score))}>
+        <span className={cn("w-fit rounded-full border px-3 py-1 text-sm font-semibold", scoreTone(review.score))}>
           Score {review.score}
         </span>
       </div>
@@ -512,7 +512,7 @@ function CodeSubmission({ result }: { result: SessionResult }) {
         <div className="flex flex-wrap gap-2">
           {result.changed_files.length ? (
             result.changed_files.map((path) => (
-              <span className="rounded-full border border-cyan-900/70 bg-cyan-950/30 px-3 py-1 text-xs text-cyan-100" key={path}>
+              <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs text-blue-700" key={path}>
                 {path}
               </span>
             ))
@@ -799,15 +799,15 @@ function ResultTabs({
   onTabChange: (tab: ResultTab) => void;
 }) {
   return (
-    <div className="overflow-x-auto border-b border-slate-800">
+    <div className="overflow-x-auto rounded-card border border-white/80 bg-white p-1 shadow-panel">
       <div className="flex min-w-max gap-1">
         {RESULT_TABS.map((tab) => (
           <button
             className={cn(
-              "h-11 rounded-t-md px-4 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
+              "h-10 rounded-lg px-4 text-sm font-semibold outline-none transition",
               activeTab === tab.id
-                ? "bg-slate-900 text-cyan-200"
-                : "text-slate-400 hover:bg-slate-900/70 hover:text-slate-100",
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
             )}
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
@@ -929,7 +929,7 @@ function ResultContent() {
       />
 
       <main className="mt-6 grid max-w-7xl gap-5">
-        <Link className="w-fit text-sm font-medium text-cyan-300 hover:text-cyan-200" href="/results">
+        <Link className="w-fit text-sm font-semibold text-blue-700 hover:text-blue-900" href="/results">
           Back to results
         </Link>
 
@@ -952,15 +952,15 @@ function ResultContent() {
 
         {result ? (
           <section className="grid gap-5">
-            <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
+            <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge label={result.status} tone={statusTone(result.status)} />
                     <RecommendationBadge recommendation={result.recommendation} />
                   </div>
-                  <h2 className="mt-4 text-2xl font-semibold text-slate-50">{result.scenario_title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                  <h2 className="mt-4 text-2xl font-semibold text-slate-950">{result.scenario_title}</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
                     {result.role_title} / {result.candidate_name} / {result.candidate_email}
                   </p>
                 </div>

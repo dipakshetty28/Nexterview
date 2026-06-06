@@ -3,9 +3,85 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+  --app-bg: 238 242 247;
+  --card-bg: 255 255 255;
+  --card-elevated: 248 250 252;
+  --border-color: 203 213 225;
+  --text-primary: 15 23 42;
+  --text-muted: 71 85 105;
+  --text-subtle: 100 116 139;
+  --accent-primary: 37 99 235;
+  --accent-soft: 219 234 254;
+  --accent-ink: 30 64 175;
+  --success: 5 150 105;
+  --warning: 217 119 6;
+  --danger: 220 38 38;
+  --info: 2 132 199;
+  --focus-ring: 37 99 235;
+  --radius-card: 0.875rem;
+  --shadow-panel: 0 16px 40px rgb(15 23 42 / 0.08), 0 1px 2px rgb(15 23 42 / 0.06);
+  --shadow-elevated: 0 24px 60px rgb(15 23 42 / 0.14), 0 3px 10px rgb(15 23 42 / 0.08);
+}
+
+html {
+  min-height: 100%;
+  background: rgb(var(--app-bg));
 }
 
 body {
-  @apply bg-slate-950 text-slate-100 min-h-screen;
+  min-height: 100vh;
+  color: rgb(var(--text-primary));
+  background:
+    radial-gradient(circle at top left, rgb(219 234 254 / 0.85), transparent 32rem),
+    radial-gradient(circle at 85% 8%, rgb(203 213 225 / 0.62), transparent 26rem),
+    linear-gradient(180deg, rgb(248 250 252), rgb(var(--app-bg)) 34rem);
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgb(var(--accent-soft));
+  color: rgb(var(--accent-ink));
+}
+
+@layer base {
+  * {
+    @apply border-app-border;
+  }
+
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+  }
+
+  input,
+  select,
+  textarea {
+    color-scheme: light;
+  }
+}
+
+@layer components {
+  .app-page-bg {
+    background:
+      linear-gradient(135deg, rgb(255 255 255 / 0.9), rgb(241 245 249 / 0.65) 36%, rgb(226 232 240 / 0.55)),
+      radial-gradient(circle at 4rem 3rem, rgb(191 219 254 / 0.72), transparent 20rem),
+      radial-gradient(circle at calc(100% - 12rem) 7rem, rgb(226 232 240 / 0.95), transparent 26rem);
+  }
+
+  .table-surface {
+    @apply min-w-full divide-y divide-slate-200 text-left text-sm;
+  }
+
+  .table-head {
+    @apply bg-slate-50/90 text-xs uppercase tracking-wide text-slate-500;
+  }
+
+  .table-row {
+    @apply transition hover:bg-sky-50/70;
+  }
 }

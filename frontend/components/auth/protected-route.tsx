@@ -19,7 +19,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (isLoading || !user) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-300">
+      <main className="app-page-bg flex min-h-screen items-center justify-center px-6 text-slate-700">
         <div className="w-full max-w-md">
           <LoadingState label="Preparing secure workspace" rows={2} />
         </div>

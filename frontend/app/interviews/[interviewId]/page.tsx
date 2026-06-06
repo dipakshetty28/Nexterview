@@ -8,8 +8,11 @@ import { AppShell } from "@/components/app/app-shell";
 import {
   EmptyState,
   ErrorState,
+  FloatingHint,
+  InfoTooltip,
   LoadingState,
   PageHeader,
+  SectionHeader,
   StatCard,
   StatusBadge,
   formatDateTime,
@@ -47,25 +50,25 @@ const DEFAULT_INVITE_COUNT = 1;
 
 function fileTone(file: ProjectFile): string {
   if (file.is_hidden) {
-    return "border-amber-900/60 bg-amber-950/20 text-amber-100";
+    return "border-amber-200 bg-amber-50 text-amber-800";
   }
   if (!file.is_editable) {
-    return "border-slate-700 bg-slate-950 text-slate-300";
+    return "border-slate-200 bg-slate-50 text-slate-700";
   }
-  return "border-cyan-900/50 bg-cyan-950/20 text-cyan-100";
+  return "border-blue-200 bg-blue-50 text-blue-700";
 }
 
 function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
   return (
-    <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-4">
+    <section className="grid gap-3 rounded-card border border-slate-200 bg-slate-50/90 p-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
-          <h3 className="text-base font-semibold text-slate-100">{project.project_name}</h3>
+          <h3 className="text-base font-semibold text-slate-950">{project.project_name}</h3>
           <p className="mt-1 text-xs text-slate-500">
             {project.framework ?? "Project"} / {project.package_manager ?? "package manager"} / {project.files.length} files
           </p>
         </div>
-        <div className="grid gap-1 text-xs text-slate-400 md:text-right">
+        <div className="grid gap-1 text-xs text-slate-600 md:text-right">
           <span>Environment: pre-provisioned</span>
           <span>Checks: pass/fail runner configured</span>
           {project.entrypoint ? <span>Entrypoint: {project.entrypoint}</span> : null}
@@ -94,11 +97,11 @@ function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
 function ReviewList({ title, items }: { title: string; items: string[] }) {
   return (
     <section>
-      <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
-      <ul className="mt-2 grid gap-2 text-sm leading-6 text-slate-400">
+      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+      <ul className="mt-2 grid gap-2 text-sm leading-6 text-slate-700">
         {items.length ? (
           items.map((item) => (
-            <li className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2" key={item}>
+            <li className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2" key={item}>
               {item}
             </li>
           ))
@@ -112,9 +115,9 @@ function ReviewList({ title, items }: { title: string; items: string[] }) {
 
 function CandidateSessionRow({ submission }: { submission: InterviewSubmissionResult }) {
   return (
-    <tr className="hover:bg-slate-950/60">
+    <tr className="table-row">
       <td className="px-5 py-4">
-        <p className="font-medium text-slate-100">{submission.candidate_name}</p>
+        <p className="font-medium text-slate-950">{submission.candidate_name}</p>
         <p className="mt-1 text-xs text-slate-500">{submission.candidate_email}</p>
       </td>
       <td className="px-5 py-4">
@@ -127,12 +130,12 @@ function CandidateSessionRow({ submission }: { submission: InterviewSubmissionRe
           <span className="text-slate-600">No invite</span>
         )}
       </td>
-      <td className="px-5 py-4 text-slate-400">{formatDateTime(submission.started_at)}</td>
-      <td className="px-5 py-4 text-slate-400">{formatDateTime(submission.submitted_at)}</td>
-      <td className="px-5 py-4 text-slate-300">{submission.test_output ? "Test output submitted" : "No test output"}</td>
+      <td className="px-5 py-4 text-slate-600">{formatDateTime(submission.started_at)}</td>
+      <td className="px-5 py-4 text-slate-600">{formatDateTime(submission.submitted_at)}</td>
+      <td className="px-5 py-4 text-slate-700">{submission.test_output ? "Test output submitted" : "No test output"}</td>
       <td className="px-5 py-4">
         {submission.submission_id ? (
-          <Link className="font-medium text-cyan-300 hover:text-cyan-200" href={`/results/${submission.session_id}`}>
+          <Link className="font-semibold text-blue-700 hover:text-blue-900" href={`/results/${submission.session_id}`}>
             View result
           </Link>
         ) : (
@@ -145,9 +148,9 @@ function CandidateSessionRow({ submission }: { submission: InterviewSubmissionRe
 
 function ScenarioFilesPreview({ files, title }: { files: ScenarioFilePayload[]; title: string }) {
   return (
-    <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-4">
+    <section className="grid gap-3 rounded-card border border-slate-200 bg-slate-50/90 p-4">
       <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-        <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
         <span className="text-xs uppercase tracking-wide text-slate-500">{files.length} files</span>
       </div>
       {files.length ? (
@@ -188,19 +191,19 @@ function InviteRow({
 }) {
   const candidateLabel = invite.candidate_name || invite.candidate_email || "Generic invite";
   return (
-    <tr className="hover:bg-slate-950/60">
+    <tr className="table-row">
       <td className="px-5 py-4">
-        <p className="font-medium text-slate-100">{candidateLabel}</p>
+        <p className="font-medium text-slate-950">{candidateLabel}</p>
         <p className="mt-1 text-xs text-slate-500">{invite.candidate_email ?? "Any candidate in this organization"}</p>
       </td>
       <td className="px-5 py-4">
         <StatusBadge label={invite.status} tone={statusTone(invite.status)} />
       </td>
-      <td className="px-5 py-4 text-slate-400">{formatDateTime(invite.expires_at)}</td>
-      <td className="px-5 py-4 text-slate-400">{formatDateTime(invite.used_at)}</td>
+      <td className="px-5 py-4 text-slate-600">{formatDateTime(invite.expires_at)}</td>
+      <td className="px-5 py-4 text-slate-600">{formatDateTime(invite.used_at)}</td>
       <td className="max-w-sm px-5 py-4">
         {invite.invite_url ? (
-          <p className="break-all rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-cyan-200">
+          <p className="break-all rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-blue-700">
             {invite.invite_url}
           </p>
         ) : (
@@ -466,7 +469,7 @@ function InterviewDetailContent() {
               >
                 {isApproving ? "Approving..." : scenarioReady ? "Scenario approved" : "Approve scenario"}
               </Button>
-              <Button aria-busy={isDeleting} disabled={isDeleting} onClick={() => void handleDeleteInterview()} type="button" variant="secondary">
+              <Button aria-busy={isDeleting} disabled={isDeleting} onClick={() => void handleDeleteInterview()} type="button" variant="danger">
                 {isDeleting ? "Deleting..." : "Delete"}
               </Button>
             </>
@@ -481,7 +484,7 @@ function InterviewDetailContent() {
         {isLoading ? <LoadingState label="Loading interview" rows={4} /> : null}
         {error ? <ErrorState message={error} /> : null}
         {successMessage ? (
-          <p className="rounded-md border border-emerald-900/70 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             {successMessage}
           </p>
         ) : null}
@@ -500,7 +503,7 @@ function InterviewDetailContent() {
               <StatCard description={`${submittedCount} submitted, ${reviewedCount} reviewed`} label="Candidate sessions" value={submissions.length} />
             </section>
 
-            <section className="rounded-md border border-slate-800 bg-slate-900/70 p-5">
+            <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -508,13 +511,17 @@ function InterviewDetailContent() {
                     <StatusBadge label={`Scenario: ${scenarioStatus}`} tone={statusTone(scenarioStatus)} />
                     <StatusBadge label={interview.allowed_ai_mode} tone="info" />
                   </div>
-                  <h2 className="mt-3 text-lg font-semibold text-slate-100">{interview.role_title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                  <h2 className="mt-3 text-lg font-semibold text-slate-950">{interview.role_title}</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
                     Created {formatDateTime(interview.created_at)}. Stack: {interview.stack.join(", ")}
                   </p>
                 </div>
 
                 <div className="grid w-full gap-3 xl:w-[28rem]">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-950">Candidate invite</p>
+                    <InfoTooltip content="Invite links remain visible here with expiry, usage, regeneration, and revocation status." label="Invite expiry help" />
+                  </div>
                   <Input
                     id="candidate_invite_name"
                     label="Candidate name"
@@ -566,7 +573,7 @@ function InterviewDetailContent() {
                   {!interview.scenario ? (
                     <p className="text-xs text-slate-500">Generate the scenario before creating an invite.</p>
                   ) : !scenarioReady ? (
-                    <p className="text-xs text-amber-200">Approve the generated scenario before creating candidate links.</p>
+                    <p className="text-xs text-amber-700">Approve the generated scenario before creating candidate links.</p>
                   ) : (
                     <p className="text-xs text-slate-500">
                       Leave email blank to create generic single-use links for candidates in this organization.
@@ -576,13 +583,13 @@ function InterviewDetailContent() {
               </div>
             </section>
 
-            <section className="rounded-md border border-slate-800 bg-slate-900/70">
-              <div className="flex flex-col gap-2 border-b border-slate-800 px-5 py-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold">Invite links</h2>
-                  <p className="mt-1 text-sm text-slate-400">Persistent candidate links with status, expiry, and regeneration controls.</p>
-                </div>
-                <span className="text-xs uppercase tracking-wide text-slate-500">{invites.length} invites</span>
+            <section className="overflow-hidden rounded-card border border-white/80 bg-white shadow-panel">
+              <div className="border-b border-slate-200 px-5 py-4">
+                <SectionHeader
+                  aside={<span className="text-xs uppercase tracking-wide text-slate-500">{invites.length} invites</span>}
+                  description="Persistent candidate links with status, expiry, and regeneration controls."
+                  title="Invite links"
+                />
               </div>
               {invites.length === 0 ? (
                 <div className="p-5">
@@ -593,8 +600,8 @@ function InterviewDetailContent() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-                    <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500">
+                  <table className="table-surface">
+                    <thead className="table-head">
                       <tr>
                         <th className="px-5 py-3 font-medium">Candidate</th>
                         <th className="px-5 py-3 font-medium">Status</th>
@@ -604,7 +611,7 @@ function InterviewDetailContent() {
                         <th className="px-5 py-3 font-medium">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800">
+                    <tbody className="divide-y divide-slate-200">
                       {invites.map((invite) => (
                         <InviteRow
                           invite={invite}
@@ -622,13 +629,13 @@ function InterviewDetailContent() {
               )}
             </section>
 
-            <section className="rounded-md border border-slate-800 bg-slate-900/70">
-              <div className="flex flex-col gap-2 border-b border-slate-800 px-5 py-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold">Candidate sessions</h2>
-                  <p className="mt-1 text-sm text-slate-400">Candidate activity and result readiness for this interview.</p>
-                </div>
-                <span className="text-xs uppercase tracking-wide text-slate-500">{submissions.length} sessions</span>
+            <section className="overflow-hidden rounded-card border border-white/80 bg-white shadow-panel">
+              <div className="border-b border-slate-200 px-5 py-4">
+                <SectionHeader
+                  aside={<span className="text-xs uppercase tracking-wide text-slate-500">{submissions.length} sessions</span>}
+                  description="Candidate activity and result readiness for this interview."
+                  title="Candidate sessions"
+                />
               </div>
               {submissions.length === 0 ? (
                 <div className="p-5">
@@ -639,8 +646,8 @@ function InterviewDetailContent() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-                    <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500">
+                  <table className="table-surface">
+                    <thead className="table-head">
                       <tr>
                         <th className="px-5 py-3 font-medium">Candidate</th>
                         <th className="px-5 py-3 font-medium">Session</th>
@@ -651,7 +658,7 @@ function InterviewDetailContent() {
                         <th className="px-5 py-3 font-medium">Result</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800">
+                    <tbody className="divide-y divide-slate-200">
                       {submissions.map((submission) => (
                         <CandidateSessionRow key={submission.session_id} submission={submission} />
                       ))}
@@ -662,18 +669,24 @@ function InterviewDetailContent() {
             </section>
 
             {interview.scenario ? (
-              <section className="grid gap-5 rounded-md border border-slate-800 bg-slate-900/70 p-5">
+              <section className="grid gap-5 rounded-card border border-white/80 bg-white p-5 shadow-panel">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <p className="text-sm font-medium text-cyan-200">Scenario preview</p>
-                    <h2 className="mt-1 text-xl font-semibold">{interview.scenario.title}</h2>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">{interview.scenario.business_context}</p>
+                    <p className="text-sm font-medium text-blue-700">Scenario preview</p>
+                    <h2 className="mt-1 text-xl font-semibold text-slate-950">{interview.scenario.title}</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{interview.scenario.business_context}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <StatusBadge label={scenarioStatus} tone={statusTone(scenarioStatus)} />
                     <StatusBadge label="Reviewer visible" tone="info" />
                   </div>
                 </div>
+
+                <FloatingHint title="Scenario quality gate" tone={scenarioReady ? "success" : "warning"}>
+                  {scenarioReady
+                    ? "This scenario is approved, so candidate invite links can be created and started."
+                    : "Review the candidate-visible brief, validation guidance, and hidden rubric before approving this scenario."}
+                </FloatingHint>
 
                 <div className="grid gap-4 lg:grid-cols-2">
                   <ReviewList items={interview.scenario.visible_requirements} title="Visible requirements" />
@@ -684,15 +697,15 @@ function InterviewDetailContent() {
                   <ReviewList items={interview.scenario.interviewer_rubric} title="Interviewer rubric" />
                 </div>
 
-                <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-4">
-                  <h3 className="text-sm font-semibold text-slate-100">Candidate-facing brief</h3>
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300">{interview.scenario.candidate_instructions}</p>
-                  <div className="grid gap-3 text-sm leading-6 text-slate-400 md:grid-cols-2">
+                <section className="grid gap-3 rounded-card border border-slate-200 bg-slate-50/90 p-4">
+                  <h3 className="text-sm font-semibold text-slate-950">Candidate-facing brief</h3>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{interview.scenario.candidate_instructions}</p>
+                  <div className="grid gap-3 text-sm leading-6 text-slate-700 md:grid-cols-2">
                     <p>
-                      <span className="font-medium text-slate-200">Bug:</span> {interview.scenario.bug_description}
+                      <span className="font-medium text-slate-950">Bug:</span> {interview.scenario.bug_description}
                     </p>
                     <p>
-                      <span className="font-medium text-slate-200">Feature:</span> {interview.scenario.feature_request}
+                      <span className="font-medium text-slate-950">Feature:</span> {interview.scenario.feature_request}
                     </p>
                   </div>
                   {interview.scenario.logs_or_bug_report ? (
@@ -703,15 +716,18 @@ function InterviewDetailContent() {
                 </section>
 
                 <section>
-                  <h3 className="text-sm font-semibold text-slate-200">Validation instructions</h3>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-400">
+                  <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                    Validation instructions
+                    <InfoTooltip content="Candidates see the validation guidance, but the platform owns the actual pass/fail runner and hidden reviewer context." label="Test validation command help" />
+                  </h3>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
                     {interview.scenario.validation_instructions}
                   </p>
                 </section>
 
-                <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-4">
-                  <h3 className="text-sm font-semibold text-slate-100">Expected solution summary</h3>
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300">{interview.scenario.expected_solution_summary}</p>
+                <section className="grid gap-3 rounded-card border border-slate-200 bg-slate-50/90 p-4">
+                  <h3 className="text-sm font-semibold text-slate-950">Expected solution summary</h3>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{interview.scenario.expected_solution_summary}</p>
                 </section>
 
                 {interview.scenario.project ? <ProjectFilesPreview project={interview.scenario.project} /> : null}
