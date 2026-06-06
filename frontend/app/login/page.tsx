@@ -36,18 +36,17 @@ function LoginForm() {
 
   return (
     <AuthPageShell
-      description="Open your hiring workspace to manage interviews, review evidence, and track candidate outcomes."
-      eyebrow="Secure hiring workspace"
-      title="Welcome back."
+      description="Manage realistic engineering interviews and review the evidence behind every candidate decision."
+      eyebrow="Interviewer workspace"
+      title="Continue your hiring workflow."
     >
-      <div>
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Log in</p>
-          <h2 className="mt-2 text-3xl font-semibold text-slate-950">Access your organization</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Use the account assigned to your role. Candidate sessions continue from invite links.
-          </p>
-        </div>
+      <div className="mx-auto w-full max-w-md">
+        <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Log in</p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Access your organization</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Use your interviewer or admin account. Candidates should return through their interview invite.
+        </p>
+
         <form className="mt-7 grid gap-5" onSubmit={handleSubmit}>
           <Input
             id="email"
@@ -68,20 +67,23 @@ function LoginForm() {
             required
           />
           {error ? (
-            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-6 text-rose-700">
+            <p aria-live="polite" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-6 text-rose-700" role="alert">
               {error}
             </p>
           ) : null}
-          <Button aria-busy={isSubmitting} type="submit" disabled={isSubmitting}>
+          <Button aria-busy={isSubmitting} className="w-full" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Signing in..." : "Log in"}
           </Button>
         </form>
-        <p className="mt-6 text-sm text-slate-600">
+
+        <div className="mt-6 border-t border-slate-200 pt-5">
+          <p className="text-sm text-slate-600">
           New organization?{" "}
-          <Link href="/register" className="font-medium text-blue-700 hover:text-blue-900">
-            Create account
-          </Link>
-        </p>
+            <Link href="/register" className="font-semibold text-blue-700 hover:text-blue-900">
+              Create an admin account
+            </Link>
+          </p>
+        </div>
       </div>
     </AuthPageShell>
   );
