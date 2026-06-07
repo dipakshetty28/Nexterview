@@ -205,7 +205,7 @@ function FileTreeItem({
     return (
       <button
         className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs ${
-          isSelected ? "bg-cyan-950/70 text-cyan-100" : "text-slate-300 hover:bg-slate-900"
+          isSelected ? "bg-blue-600 text-white shadow-sm" : "text-slate-300 hover:bg-slate-800"
         }`}
         onClick={() => onSelect(node.file as WorkspaceFile)}
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
@@ -222,7 +222,7 @@ function FileTreeItem({
   return (
     <details open>
       <summary
-        className="cursor-pointer rounded-md px-2 py-1.5 text-xs font-semibold text-slate-400 hover:bg-slate-900"
+        className="cursor-pointer rounded-md px-2 py-1.5 text-xs font-semibold text-slate-400 hover:bg-slate-800"
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
       >
         {node.name}
@@ -386,13 +386,13 @@ function ChatMessageBubble({
     <div
       className={
         isAssistant
-          ? "rounded-md border border-slate-800 bg-slate-950 p-3 text-sm text-slate-200 shadow-sm"
-          : "ml-5 rounded-md border border-cyan-900/70 bg-cyan-950/40 p-3 text-sm text-cyan-50 shadow-sm"
+          ? "rounded-lg border border-slate-700 bg-slate-800/80 p-3 text-sm text-slate-200 shadow-sm"
+          : "ml-5 rounded-lg border border-blue-800 bg-blue-950/50 p-3 text-sm text-blue-50 shadow-sm"
       }
     >
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isAssistant ? "AI Copilot" : "You"}</p>
-        {isPending ? <span className="text-xs text-cyan-300">sending</span> : null}
+        {isPending ? <span className="text-xs text-blue-300">sending</span> : null}
       </div>
       {isAssistant ? (
         <div className="grid gap-2">
@@ -401,7 +401,7 @@ function ChatMessageBubble({
             <div className="flex flex-wrap gap-2 pt-1">
               {suggestedFiles.map((file) => (
                 <button
-                  className="max-w-full truncate rounded-full border border-cyan-900/70 bg-cyan-950/30 px-2.5 py-1 text-left text-xs text-cyan-100 outline-none hover:border-cyan-600 focus-visible:ring-2 focus-visible:ring-cyan-400/60"
+                  className="max-w-full truncate rounded-full border border-blue-800 bg-blue-950/40 px-2.5 py-1 text-left text-xs text-blue-100 outline-none hover:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-400/60"
                   key={file.path}
                   onClick={() => onOpenSuggestedFile(file.path)}
                   title={sanitizeCandidateText(file.reason)}
@@ -440,20 +440,17 @@ function CopilotMessage({
 
 function AiEmptyState() {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-300">
+    <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 text-sm leading-6 text-slate-300">
       <p className="font-medium text-slate-100">Ask for debugging help, code review, test ideas, or tradeoff analysis.</p>
-      <p className="mt-2 text-slate-400">
-        Task context, current code, and latest test result are included automatically.
-      </p>
     </div>
   );
 }
 
 function AiTypingIndicator() {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
+    <div className="rounded-lg border border-blue-900/70 bg-blue-950/25 p-3 text-sm text-blue-100">
       <span className="inline-flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full bg-cyan-300" />
+        <span className="h-2 w-2 animate-pulse rounded-full bg-blue-300" />
         AI copilot is reviewing your context...
       </span>
     </div>
@@ -473,14 +470,14 @@ function AiErrorState({ onRetry, isRetrying }: { onRetry: () => void; isRetrying
 
 function StatusBadge({ label, tone = "neutral" }: { label: string; tone?: "neutral" | "success" | "warning" | "danger" }) {
   const toneClass = {
-    neutral: "border-slate-700 bg-slate-900 text-slate-200",
-    success: "border-emerald-800 bg-emerald-950/60 text-emerald-200",
-    warning: "border-amber-800 bg-amber-950/60 text-amber-200",
-    danger: "border-red-800 bg-red-950/60 text-red-200",
+    neutral: "border-slate-600 bg-slate-800 text-slate-100",
+    success: "border-emerald-700 bg-emerald-950/80 text-emerald-200",
+    warning: "border-amber-700 bg-amber-950/80 text-amber-200",
+    danger: "border-red-700 bg-red-950/80 text-red-200",
   }[tone];
 
   return (
-    <span className={cn("inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-medium", toneClass)}>
+    <span className={cn("inline-flex h-7 items-center rounded-full border px-2.5 text-xs font-semibold shadow-sm", toneClass)}>
       {label}
     </span>
   );
@@ -503,24 +500,31 @@ function WorkspaceLoadingState() {
 
 function PanelIconButton({
   label,
-  children,
+  icon,
   disabled = false,
   onClick,
 }: {
   label: string;
-  children: string;
+  icon: "minimize" | "maximize" | "restore";
   disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       aria-label={label}
-      className="inline-flex h-7 min-w-7 items-center justify-center rounded border border-slate-700 bg-slate-950 px-2 text-xs font-semibold text-slate-300 outline-none transition hover:border-cyan-600 hover:text-cyan-100 focus-visible:ring-2 focus-visible:ring-cyan-400/60 disabled:cursor-not-allowed disabled:opacity-40"
+      className="relative inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-slate-400 outline-none transition hover:border-slate-500 hover:bg-slate-800 hover:text-white focus-visible:ring-2 focus-visible:ring-blue-400/60 disabled:cursor-not-allowed disabled:opacity-35"
       disabled={disabled}
       onClick={onClick}
       type="button"
     >
-      {children}
+      {icon === "minimize" ? <span className="h-px w-3 bg-current" /> : null}
+      {icon === "maximize" ? <span className="h-3 w-3 rounded-[2px] border border-current" /> : null}
+      {icon === "restore" ? (
+        <span className="relative h-3.5 w-3.5">
+          <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-[2px] border border-current" />
+          <span className="absolute bottom-0 left-0 h-2.5 w-2.5 rounded-[2px] border border-current bg-slate-900" />
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -547,23 +551,17 @@ function PanelHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-14 items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/70 px-3 py-2">
+    <div className="flex min-h-14 items-center justify-between gap-3 border-b border-slate-700/80 bg-slate-900 px-3 py-2 shadow-sm">
       <div className="min-w-0">
-        {eyebrow ? <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{eyebrow}</p> : null}
-        <h2 className="truncate text-sm font-semibold text-slate-100">{title}</h2>
-        {meta ? <p className="truncate text-xs text-slate-500">{meta}</p> : null}
+        {eyebrow ? <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-300">{eyebrow}</p> : null}
+        <h2 className="truncate text-sm font-semibold text-white">{title}</h2>
+        {meta ? <p className="truncate text-xs text-slate-400">{meta}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {actions}
-        <PanelIconButton label={`Minimize ${title} panel`} onClick={() => onMinimize(panelId)}>
-          _
-        </PanelIconButton>
-        <PanelIconButton label={`Maximize ${title} panel`} onClick={() => onMaximize(panelId)}>
-          []
-        </PanelIconButton>
-        <PanelIconButton disabled={!isMaximized} label={`Restore ${title} panel`} onClick={onRestore}>
-          R
-        </PanelIconButton>
+        <PanelIconButton icon="minimize" label={`Minimize ${title} panel`} onClick={() => onMinimize(panelId)} />
+        <PanelIconButton icon="maximize" label={`Maximize ${title} panel`} onClick={() => onMaximize(panelId)} />
+        <PanelIconButton disabled={!isMaximized} icon="restore" label={`Restore ${title} panel`} onClick={onRestore} />
       </div>
     </div>
   );
@@ -573,7 +571,7 @@ function IdePanel({ children, className }: { children: ReactNode; className?: st
   return (
     <section
       className={cn(
-        "flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-slate-800 bg-slate-900/80 shadow-2xl shadow-slate-950/30",
+        "flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-slate-700/80 bg-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.28),0_2px_8px_rgba(15,23,42,0.2)]",
         className,
       )}
     >
@@ -594,7 +592,7 @@ function CollapsedPanelRestore({
   return (
     <button
       aria-label={`Restore ${label} panel`}
-      className="flex h-full w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-300 outline-none transition hover:bg-slate-800 hover:text-cyan-100 focus-visible:ring-2 focus-visible:ring-cyan-400/60"
+      className="flex h-full w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-300 shadow-lg outline-none transition hover:border-blue-500 hover:bg-slate-800 hover:text-blue-200 focus-visible:ring-2 focus-visible:ring-blue-400/60"
       onClick={onRestore}
       type="button"
     >
@@ -608,14 +606,14 @@ function ResizeGrip({ orientation }: { orientation: "vertical" | "horizontal" })
     <PanelResizeHandle
       aria-label={orientation === "vertical" ? "Resize workspace columns" : "Resize output panel"}
       className={cn(
-        "group flex items-center justify-center rounded outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/60",
-        orientation === "vertical" ? "w-2 cursor-col-resize px-0.5" : "h-2 cursor-row-resize py-0.5",
+        "group flex items-center justify-center rounded outline-none transition focus-visible:ring-2 focus-visible:ring-blue-400/60",
+        orientation === "vertical" ? "w-3 cursor-col-resize px-1" : "h-3 cursor-row-resize py-1",
       )}
     >
       <span
         className={cn(
-          "rounded-full bg-slate-700 transition group-hover:bg-cyan-500 group-data-[resize-handle-active]:bg-cyan-400",
-          orientation === "vertical" ? "h-14 w-1" : "h-1 w-14",
+          "rounded-full bg-slate-400/70 shadow-sm transition group-hover:bg-blue-500 group-data-[resize-handle-active]:bg-blue-400",
+          orientation === "vertical" ? "h-16 w-1" : "h-1 w-16",
         )}
       />
     </PanelResizeHandle>
@@ -624,85 +622,108 @@ function ResizeGrip({ orientation }: { orientation: "vertical" | "horizontal" })
 
 function TaskPanel({ session }: { session: CandidateSession }) {
   const scenario = session.scenario;
+  const requirements = scenario.visible_requirements.length ? scenario.visible_requirements : scenario.technical_requirements;
+
   return (
-    <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
-      <div className="space-y-5">
-        <section>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">Task</p>
-          <h1 className="mt-2 text-xl font-semibold tracking-tight text-slate-50">{scenario.title}</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-300">{scenario.business_context}</p>
-          <div className="mt-4 grid gap-2 text-xs text-slate-300">
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded border border-slate-700 bg-slate-950 px-2 py-1">
-                Language: <span className="font-semibold text-slate-100">{sanitizeCandidateText(scenario.language || "Not specified")}</span>
-              </span>
-              <span className="rounded border border-slate-700 bg-slate-950 px-2 py-1">
-                Framework: <span className="font-semibold text-slate-100">{sanitizeCandidateText(scenario.framework || "Not specified")}</span>
-              </span>
-            </div>
-            {scenario.validation_command ? (
-              <div className="rounded border border-slate-800 bg-slate-950/70 px-2 py-1 font-mono text-[11px] text-cyan-100">
-                Validation: {sanitizeCandidateText(scenario.validation_command)}
-              </div>
-            ) : null}
+    <div className="min-h-0 flex-1 overflow-auto bg-slate-900 px-4 py-4">
+      <div className="grid gap-4">
+        <section className="rounded-lg border border-slate-700 bg-slate-800/80 p-4 shadow-sm">
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge label={sanitizeCandidateText(scenario.language || "Language")} />
+            {scenario.framework ? <StatusBadge label={sanitizeCandidateText(scenario.framework)} /> : null}
           </div>
+          <h1 className="mt-4 text-xl font-semibold tracking-tight text-white">{scenario.title}</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-300">{scenario.business_context}</p>
         </section>
 
         {scenario.candidate_instructions ? (
-          <section className="border-t border-slate-800 pt-4">
-            <h2 className="text-sm font-semibold text-slate-100">Candidate Instructions</h2>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">
+          <section className="rounded-lg border border-blue-900/70 bg-blue-950/30 p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-blue-300">Assignment brief</h2>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-200">
               {sanitizeCandidateText(scenario.candidate_instructions)}
             </p>
           </section>
         ) : null}
 
-        <section className="border-t border-slate-800 pt-4">
-          <h2 className="text-sm font-semibold text-slate-100">Visible Requirements</h2>
-          <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
-            {scenario.technical_requirements.map((item) => (
-              <li className="rounded border border-slate-800 bg-slate-950/50 px-3 py-2" key={item}>
-                {sanitizeCandidateText(item)}
+        <section className="rounded-lg border border-slate-700 bg-slate-800/55 p-4">
+          <h2 className="text-sm font-semibold text-white">Requirements</h2>
+          <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+            {requirements.map((item) => (
+              <li className="grid grid-cols-[18px_1fr] gap-2 rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2" key={item}>
+                <span aria-hidden="true" className="mt-1 h-3.5 w-3.5 rounded border border-blue-400 bg-blue-950" />
+                <span>{sanitizeCandidateText(item)}</span>
               </li>
             ))}
           </ul>
         </section>
 
-        <section className="border-t border-slate-800 pt-4">
-          <h2 className="text-sm font-semibold text-slate-100">Bug And Feature Request</h2>
-          <div className="mt-3 grid gap-3 text-sm leading-6 text-slate-300">
-            <p>
-              <span className="font-semibold text-slate-100">Bug:</span> {sanitizeCandidateText(scenario.bug_description)}
-            </p>
-            <p>
-              <span className="font-semibold text-slate-100">Feature:</span> {sanitizeCandidateText(scenario.feature_request)}
-            </p>
-          </div>
-        </section>
+        {scenario.constraints.length ? (
+          <section className="rounded-lg border border-slate-700 bg-slate-800/55 p-4">
+            <h2 className="text-sm font-semibold text-white">Constraints</h2>
+            <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
+              {scenario.constraints.map((item) => (
+                <li className="border-l-2 border-amber-500 pl-3" key={item}>
+                  {sanitizeCandidateText(item)}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
-        <section className="border-t border-slate-800 pt-4">
-          <h2 className="text-sm font-semibold text-slate-100">Expected Deliverables</h2>
+        <section className="rounded-lg border border-slate-700 bg-slate-800/55 p-4">
+          <h2 className="text-sm font-semibold text-white">Expected deliverables</h2>
           <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
             {scenario.expected_behavior.map((item) => (
-              <li key={item}>{sanitizeCandidateText(item)}</li>
+              <li className="grid grid-cols-[6px_1fr] gap-3" key={item}>
+                <span aria-hidden="true" className="mt-2.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span>{sanitizeCandidateText(item)}</span>
+              </li>
             ))}
           </ul>
-          <p className="mt-3 whitespace-pre-wrap rounded border border-slate-800 bg-slate-950/60 p-3 text-sm leading-6 text-slate-300">
+        </section>
+
+        {scenario.bug_description || scenario.feature_request ? (
+          <section className="grid gap-3">
+            {scenario.bug_description ? (
+              <div className="rounded-lg border border-rose-900/70 bg-rose-950/25 p-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-rose-300">Issue to investigate</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-200">{sanitizeCandidateText(scenario.bug_description)}</p>
+              </div>
+            ) : null}
+            {scenario.feature_request ? (
+              <div className="rounded-lg border border-emerald-900/70 bg-emerald-950/25 p-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Requested behavior</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-200">{sanitizeCandidateText(scenario.feature_request)}</p>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {scenario.logs_or_bug_report ? (
+          <section className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+            <h2 className="text-sm font-semibold text-white">Logs or bug report</h2>
+            <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-black/30 p-3 font-mono text-xs leading-5 text-slate-300">
+              {sanitizeCandidateText(scenario.logs_or_bug_report)}
+            </pre>
+          </section>
+        ) : null}
+
+        <section className="rounded-lg border border-slate-700 bg-slate-800/55 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-white">Validation</h2>
+            {scenario.validation_command ? (
+              <code className="rounded-full border border-blue-800 bg-blue-950/60 px-3 py-1 text-xs text-blue-200">
+                {sanitizeCandidateText(scenario.validation_command)}
+              </code>
+            ) : null}
+          </div>
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-300">
             {sanitizeCandidateText(
               scenario.validation_instructions ||
                 "Run checks, fix the issue, implement the requested behavior, and summarize verification.",
             )}
           </p>
         </section>
-
-        {scenario.logs_or_bug_report ? (
-          <section className="border-t border-slate-800 pt-4">
-            <h2 className="text-sm font-semibold text-slate-100">Logs Or Bug Report</h2>
-            <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-slate-800 bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-300">
-              {sanitizeCandidateText(scenario.logs_or_bug_report)}
-            </pre>
-          </section>
-        ) : null}
       </div>
     </div>
   );
@@ -714,8 +735,12 @@ function OutputPanel({
   testRunStartedAt,
   isRunningTests,
   isSubmitted,
+  isSavingNotes,
+  notes,
+  submission,
   validationInstructions,
   validationCommand,
+  onNotesChange,
   onRunTests,
 }: {
   testRun: TestRunResult | null;
@@ -723,23 +748,30 @@ function OutputPanel({
   testRunStartedAt: string | null;
   isRunningTests: boolean;
   isSubmitted: boolean;
+  isSavingNotes: boolean;
+  notes: string;
+  submission: Submission | null;
   validationInstructions: string;
   validationCommand: string;
+  onNotesChange: (value: string) => void;
   onRunTests: () => void;
 }) {
   return (
-    <div className="grid h-full min-h-0 gap-4 overflow-auto p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,0.7fr)]">
+    <div className="grid h-full min-h-0 gap-4 overflow-auto bg-slate-900 p-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-slate-100">Workspace Checks</h3>
+            <h3 className="text-sm font-semibold text-white">Workspace checks</h3>
             <p className="mt-1 text-xs text-slate-500">
               Runs <span className="font-mono text-slate-300">{sanitizeCandidateText(validationCommand || "workspace checks")}</span> against the current saved files.
             </p>
           </div>
           <div className="flex items-center gap-2">
             {testRun ? (
-              <StatusBadge label={testRun.status === "passed" ? "Passed" : "Failed"} tone={testRun.status === "passed" ? "success" : "warning"} />
+              <StatusBadge
+                label={testRun.status === "passed" ? "Passed" : testRun.status}
+                tone={testRun.status === "passed" ? "success" : testRun.status === "failed" ? "warning" : "danger"}
+              />
             ) : null}
             <Button className="h-9 px-3" disabled={isRunningTests || isSubmitted} onClick={onRunTests} type="button">
               {isRunningTests ? "Running..." : "Run checks"}
@@ -760,8 +792,8 @@ function OutputPanel({
         ) : null}
 
         {testRun ? (
-          <div className="mt-3 grid gap-2">
-            <div className="grid gap-2 rounded border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300 sm:grid-cols-4">
+          <div className="mt-3 grid gap-3">
+            <div className="grid gap-2 rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-3 text-xs text-slate-300 sm:grid-cols-4">
               <span>
                 Command <span className="block font-mono text-slate-100">{sanitizeCandidateText(testRun.command)}</span>
               </span>
@@ -780,25 +812,36 @@ function OutputPanel({
                 {sanitizeCandidateText(testRun.failure_summary)}
               </div>
             ) : null}
-            <pre
-              className={cn(
-                "max-h-32 overflow-auto whitespace-pre-wrap rounded border px-3 py-2 font-mono text-xs leading-5",
-                testRun.status === "passed"
-                  ? "border-emerald-900/70 bg-emerald-950/20 text-emerald-100"
-                  : "border-amber-900/70 bg-amber-950/20 text-amber-100",
-              )}
-            >
-              {sanitizeCandidateText(testRun.output)}
-            </pre>
+            {testRun.output ? (
+              <section>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Runner output</p>
+                <pre
+                  className={cn(
+                    "max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border px-3 py-2 font-mono text-xs leading-5",
+                    testRun.status === "passed"
+                      ? "border-emerald-900/70 bg-emerald-950/20 text-emerald-100"
+                      : "border-amber-900/70 bg-amber-950/20 text-amber-100",
+                  )}
+                >
+                  {sanitizeCandidateText(testRun.output)}
+                </pre>
+              </section>
+            ) : null}
             {testRun.stdout ? (
-              <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-xs leading-5 text-slate-300">
-                {sanitizeCandidateText(testRun.stdout)}
-              </pre>
+              <section>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Standard output</p>
+                <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-xs leading-5 text-slate-300">
+                  {sanitizeCandidateText(testRun.stdout)}
+                </pre>
+              </section>
             ) : null}
             {testRun.stderr ? (
-              <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded border border-red-900/60 bg-red-950/20 px-3 py-2 font-mono text-xs leading-5 text-red-100">
-                {sanitizeCandidateText(testRun.stderr)}
-              </pre>
+              <section>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-400">Standard error</p>
+                <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-lg border border-red-900/60 bg-red-950/20 px-3 py-2 font-mono text-xs leading-5 text-red-100">
+                  {sanitizeCandidateText(testRun.stderr)}
+                </pre>
+              </section>
             ) : null}
             <div className="grid max-h-56 gap-2 overflow-auto pr-1">
               {testRun.cases.map((testCase) => (
@@ -822,14 +865,45 @@ function OutputPanel({
         ) : null}
       </div>
 
-      <div className="min-w-0">
-        <h3 className="text-sm font-semibold text-slate-100">Validation Notes</h3>
-        {testRun ? (
-          <p className="mt-2 text-xs text-slate-500">Last run {formatSavedAt(testRun.created_at)}.</p>
-        ) : null}
-        <p className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-300">
-          {sanitizeCandidateText(validationInstructions || "Use the provided checks and summarize your verification before submitting.")}
+      <div className="min-w-0 rounded-lg border border-slate-700 bg-slate-800/55 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-white">Final explanation</h3>
+          <span className="text-xs text-slate-500">{isSavingNotes ? "Saving..." : "Required"}</span>
+        </div>
+        <p className="mt-2 text-xs leading-5 text-slate-400">
+          Summarize the root cause, changes, tradeoffs, and how you validated the result.
         </p>
+        <textarea
+          className="mt-3 min-h-40 w-full resize-y rounded-lg border border-slate-600 bg-slate-950 px-3 py-3 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={isSubmitted}
+          id="candidate-notes"
+          onChange={(event) => onNotesChange(event.target.value)}
+          placeholder="Explain your diagnosis, implementation, tradeoffs, and validation."
+          value={notes}
+        />
+        {!notes.trim() && !isSubmitted ? (
+          <p className="mt-2 text-xs text-amber-300">A final explanation is required before submission.</p>
+        ) : null}
+        {submission ? (
+          <div className="mt-3 rounded-lg border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-100">
+            Submitted {formatSavedAt(submission.submitted_at)}. The workspace is locked for review.
+          </div>
+        ) : null}
+
+        <div className="mt-4 border-t border-slate-700 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Validation guidance</h4>
+            {testRun ? <span className="text-xs text-slate-500">Last run {formatSavedAt(testRun.created_at)}</span> : null}
+          </div>
+          {validationCommand ? (
+            <code className="mt-3 block w-fit max-w-full truncate rounded-full border border-blue-800 bg-blue-950/50 px-3 py-1 text-xs text-blue-200">
+              {sanitizeCandidateText(validationCommand)}
+            </code>
+          ) : null}
+          <p className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-300">
+            {sanitizeCandidateText(validationInstructions || "Use the provided checks and summarize your verification before submitting.")}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -839,12 +913,14 @@ function SubmitConfirmDialog({
   isOpen,
   notes,
   isSubmitting,
+  testRun,
   onCancel,
   onConfirm,
 }: {
   isOpen: boolean;
   notes: string;
   isSubmitting: boolean;
+  testRun: TestRunResult | null;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -869,30 +945,44 @@ function SubmitConfirmDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
       <div
         aria-modal="true"
-        className="w-full max-w-xl rounded-md border border-slate-700 bg-slate-900 p-5 shadow-2xl shadow-slate-950"
+        className="w-full max-w-xl overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-slate-950"
         role="dialog"
       >
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">Final Submission</p>
-          <h2 className="mt-2 text-lg font-semibold text-slate-50">Submit and lock this workspace?</h2>
+        <div className="border-b border-slate-700 bg-slate-800/80 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-300">Final submission</p>
+          <h2 className="mt-2 text-xl font-semibold text-white">Submit and lock this workspace?</h2>
           <p className="mt-2 text-sm leading-6 text-slate-300">
             Your saved files and final explanation will be submitted for interviewer review. You will not be able to edit
             the workspace after this.
           </p>
         </div>
-        <div className="mt-4 rounded border border-slate-800 bg-slate-950 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Your final explanation</p>
-          <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-300">
-            {sanitizeCandidateText(notes.trim())}
-          </p>
-        </div>
-        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button className="h-10" disabled={isSubmitting} onClick={onCancel} type="button" variant="secondary">
-            Keep editing
-          </Button>
-          <Button className="h-10" disabled={isSubmitting} onClick={onConfirm} type="button">
-            {isSubmitting ? "Submitting..." : "Submit final solution"}
-          </Button>
+        <div className="grid gap-4 p-5">
+          {!testRun || testRun.status !== "passed" ? (
+            <div className="rounded-lg border border-amber-800 bg-amber-950/35 p-3 text-sm leading-6 text-amber-100">
+              {testRun
+                ? `The latest test run is ${testRun.status}. You can still submit, but the interviewer will see the validation result.`
+                : "No test run is recorded yet. You can still submit, but running tests first provides stronger validation evidence."}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-lg border border-emerald-800 bg-emerald-950/35 px-3 py-2">
+              <span className="text-sm font-medium text-emerald-100">Latest test run passed</span>
+              <StatusBadge label={`${testRun.passed_count}/${testRun.total_count} passed`} tone="success" />
+            </div>
+          )}
+          <div className="rounded-lg border border-slate-700 bg-slate-950 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Your final explanation</p>
+            <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-300">
+              {sanitizeCandidateText(notes.trim())}
+            </p>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button className="h-10" disabled={isSubmitting} onClick={onCancel} type="button" variant="secondary">
+              Keep editing
+            </Button>
+            <Button className="h-10" disabled={isSubmitting} onClick={onConfirm} type="button">
+              {isSubmitting ? "Submitting..." : "Submit final solution"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -1450,57 +1540,67 @@ function CandidateSessionContent() {
   }
 
   return (
-    <main className="flex h-screen min-h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
-      <header className="shrink-0 border-b border-slate-800 bg-slate-950/95 px-4 py-3">
+    <main className="flex h-screen min-h-screen flex-col overflow-hidden bg-slate-200 text-slate-950">
+      <header className="shrink-0 border-b border-slate-300 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <Link className="text-sm font-semibold text-cyan-300 outline-none hover:text-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-400/60" href="/">
-              Nexterview
+          <div className="flex min-w-0 items-center gap-3">
+            <Link
+              aria-label="Nexterview home"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-xs font-bold text-white shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
+              href="/"
+            >
+              N
             </Link>
-            <h1 className="mt-1 truncate text-xl font-semibold tracking-tight">
-              {session?.scenario.title ?? "Candidate interview workspace"}
-            </h1>
-            <p className="mt-1 truncate text-sm text-slate-400">
-              {session ? `${session.interview.role_title} / ${session.interview.seniority} / ${session.interview.interview_type}` : user?.email}
-            </p>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Candidate interview</p>
+              <h1 className="truncate text-base font-semibold text-slate-950">
+                {session?.scenario.title ?? "Preparing interview workspace"}
+              </h1>
+              <p className="truncate text-xs text-slate-500">
+                {session ? `${session.interview.role_title} / ${session.interview.seniority} / ${session.interview.interview_type}` : user?.email}
+              </p>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="inline-flex h-9 items-center rounded border border-slate-700 bg-slate-900 px-3 font-mono text-slate-100">
-              {formatDuration(elapsedSeconds)}
-            </span>
+
+          <div className="flex flex-wrap items-center gap-2">
             <StatusBadge label={session?.status ?? "loading"} tone={isSubmitted ? "success" : "neutral"} />
-            {session ? <StatusBadge label={`AI: ${sanitizeCandidateText(session.interview.allowed_ai_mode)}`} /> : null}
-            <span className="inline-flex h-9 items-center rounded border border-slate-800 bg-slate-900 px-3 text-xs text-slate-400">
+            {session ? <StatusBadge label={sanitizeCandidateText(session.interview.allowed_ai_mode)} /> : null}
+            <div className="flex h-10 items-center gap-3 rounded-lg border border-slate-300 bg-slate-100 px-3 shadow-inner">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Elapsed</span>
+              <span className="font-mono text-sm font-semibold text-slate-950">{formatDuration(elapsedSeconds)}</span>
+            </div>
+            <span className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-600 shadow-sm">
               Saved {formatSavedAt(lastSavedAt)}
             </span>
-            <Button className="h-9 px-3" disabled={isRunningTests || isSubmitted || !session} onClick={() => void handleRunTests()} type="button" variant="secondary">
-              {isRunningTests ? "Running..." : "Run checks"}
-            </Button>
             <Button
-              className="h-9 px-4"
-              disabled={!canSubmit}
-              onClick={() => setIsSubmitDialogOpen(true)}
+              className="h-10 px-4"
+              disabled={isRunningTests || isSubmitted || !session}
+              onClick={() => void handleRunTests()}
               type="button"
+              variant="secondary"
             >
-              {isSubmitting ? "Submitting..." : isSubmitted ? "Submitted" : "Submit"}
+              {isRunningTests ? "Running checks..." : "Run tests"}
+            </Button>
+            <Button className="h-10 px-5" disabled={!canSubmit} onClick={() => setIsSubmitDialogOpen(true)} type="button">
+              {isSubmitting ? "Submitting..." : isSubmitted ? "Submitted" : "Submit solution"}
             </Button>
           </div>
         </div>
       </header>
 
-      <section className="min-h-0 flex-1 overflow-auto p-3">
+      <section className="min-h-0 flex-1 overflow-auto bg-[linear-gradient(135deg,rgb(241_245_249),rgb(226_232_240)_55%,rgb(219_234_254/0.7))] p-3">
         {isLoading ? (
           <WorkspaceLoadingState />
         ) : null}
 
         {error ? (
-          <p className="mb-3 rounded-md border border-red-900/70 bg-red-950/50 px-3 py-2 text-sm text-red-200">
+          <p className="mb-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 shadow-sm">
             {sanitizeCandidateText(error)}
           </p>
         ) : null}
 
         {submitSuccessMessage ? (
-          <p className="mb-3 rounded-md border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
+          <p className="mb-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-sm">
             {submitSuccessMessage}
           </p>
         ) : null}
@@ -1566,9 +1666,9 @@ function CandidateSessionContent() {
                       >
                         <Panel defaultSize={70} id="code" minSize={28} order={1} ref={codePanelRef}>
                           <div className="grid h-full min-h-0 grid-cols-[220px_minmax(0,1fr)]">
-                            <aside className="min-h-0 overflow-hidden border-r border-slate-800 bg-slate-950/70">
-                              <div className="border-b border-slate-800 px-3 py-2">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Files</p>
+                            <aside className="min-h-0 overflow-hidden border-r border-slate-700 bg-slate-900">
+                              <div className="border-b border-slate-700 bg-slate-800/70 px-3 py-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Explorer</p>
                                 <p className="mt-1 truncate text-xs text-slate-400">
                                   {workspace?.project?.description ?? "Editable starter code"}
                                 </p>
@@ -1584,7 +1684,7 @@ function CandidateSessionContent() {
                                   />
                                 ) : (
                                   <button
-                                    className="w-full rounded-md bg-cyan-950/70 px-2 py-2 text-left text-xs text-cyan-100 outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60"
+                                    className="w-full rounded-md bg-blue-600 px-2 py-2 text-left text-xs text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60"
                                     onClick={() => setSelectedFileId(null)}
                                     type="button"
                                   >
@@ -1593,26 +1693,54 @@ function CandidateSessionContent() {
                                 )}
                               </div>
                             </aside>
-                            <div className="min-h-0 bg-slate-950">
-                              <MonacoEditor
-                                height="100%"
-                                language={selectedFile ? monacoLanguage(selectedFile.language) : languageForStack(session.interview.stack)}
-                                onChange={handleEditorChange}
-                                onMount={(editor) => {
-                                  editorInstanceRef.current = editor;
-                                  requestEditorLayout();
-                                }}
-                                options={{
-                                  automaticLayout: true,
-                                  fontSize: 13,
-                                  minimap: { enabled: false },
-                                  readOnly: isSubmitted || Boolean(selectedFile && !selectedFile.is_editable),
-                                  scrollBeyondLastLine: false,
-                                  wordWrap: "on",
-                                }}
-                                theme="vs-dark"
-                                value={selectedEditorValue}
-                              />
+                            <div className="flex min-h-0 flex-col bg-slate-950">
+                              <div className="flex min-h-10 items-center justify-between gap-3 border-b border-slate-800 bg-slate-900 px-2">
+                                <div className="flex min-w-0 items-center self-stretch border-x border-slate-700 bg-slate-950 px-3">
+                                  <span className="min-w-0 truncate text-xs font-medium text-slate-100">
+                                    {selectedFile?.path ?? `starter-code.${languageForStack(session.interview.stack)}`}
+                                  </span>
+                                  {selectedFile && dirtyFileIds.has(selectedFile.id) ? (
+                                    <span className="ml-2 h-2 w-2 shrink-0 rounded-full bg-amber-400" title="Unsaved changes" />
+                                  ) : null}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-300">
+                                    {selectedFile
+                                      ? monacoLanguage(selectedFile.language)
+                                      : languageForStack(session.interview.stack)}
+                                  </span>
+                                  {session.scenario.validation_command ? (
+                                    <code
+                                      className="hidden max-w-64 truncate rounded-full border border-blue-900 bg-blue-950/50 px-2.5 py-0.5 text-[10px] text-blue-200 2xl:block"
+                                      title={sanitizeCandidateText(session.scenario.validation_command)}
+                                    >
+                                      {sanitizeCandidateText(session.scenario.validation_command)}
+                                    </code>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div className="min-h-0 flex-1">
+                                <MonacoEditor
+                                  height="100%"
+                                  language={selectedFile ? monacoLanguage(selectedFile.language) : languageForStack(session.interview.stack)}
+                                  onChange={handleEditorChange}
+                                  onMount={(editor) => {
+                                    editorInstanceRef.current = editor;
+                                    requestEditorLayout();
+                                  }}
+                                  options={{
+                                    automaticLayout: true,
+                                    fontSize: 13,
+                                    minimap: { enabled: false },
+                                    padding: { top: 14 },
+                                    readOnly: isSubmitted || Boolean(selectedFile && !selectedFile.is_editable),
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: "on",
+                                  }}
+                                  theme="vs-dark"
+                                  value={selectedEditorValue}
+                                />
+                              </div>
                             </div>
                           </div>
                         </Panel>
@@ -1637,19 +1765,27 @@ function CandidateSessionContent() {
                                     />
                                   ) : null
                                 }
-                                eyebrow="Tests And Logs"
+                                eyebrow="Validation cockpit"
                                 isMaximized={maximizedPanel === "output"}
-                                meta={isRunningTests ? "Running checks" : "Ready"}
+                                meta={
+                                  isRunningTests
+                                    ? "Running checks"
+                                    : sanitizeCandidateText(session.scenario.validation_command || "Ready to validate")
+                                }
                                 onMaximize={handleMaximizePanel}
                                 onMinimize={handleMinimizePanel}
                                 onRestore={() => handleRestorePanel()}
                                 panelId="output"
-                                title="Output"
+                                title="Tests & Summary"
                               />
                               <OutputPanel
                                 isRunningTests={isRunningTests}
+                                isSavingNotes={isSavingNotes}
                                 isSubmitted={isSubmitted}
+                                notes={notes}
+                                onNotesChange={handleNotesChange}
                                 onRunTests={() => void handleRunTests()}
+                                submission={submission}
                                 testRun={testRun}
                                 testRunError={testRunError}
                                 testRunStartedAt={testRunStartedAt}
@@ -1673,9 +1809,10 @@ function CandidateSessionContent() {
                 ) : (
                   <IdePanel>
                     <PanelHeader
+                      actions={<StatusBadge label={sanitizeCandidateText(session.interview.allowed_ai_mode)} />}
                       eyebrow="AI Copilot"
                       isMaximized={maximizedPanel === "copilot"}
-                      meta={sanitizeCandidateText(session.interview.allowed_ai_mode)}
+                      meta="Context-aware assistance"
                       onMaximize={handleMaximizePanel}
                       onMinimize={handleMinimizePanel}
                       onRestore={() => handleRestorePanel()}
@@ -1683,13 +1820,12 @@ function CandidateSessionContent() {
                       title="Copilot"
                     />
                     <div className="flex min-h-0 flex-1 flex-col">
-                      <div className="border-b border-slate-800 bg-slate-950/50 px-4 py-3 text-sm leading-6 text-slate-300">
-                        <p>AI assistance is allowed. Your validation and reasoning are evaluated.</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Task context, current code, and latest test result are included automatically.
+                      <div className="border-b border-slate-700 bg-blue-950/25 px-4 py-3">
+                        <p className="text-xs leading-5 text-blue-100">
+                          Task context, current code, and latest test output are included automatically.
                         </p>
                       </div>
-                      <div className="min-h-0 flex-1 overflow-auto p-4">
+                      <div className="min-h-0 flex-1 overflow-auto bg-slate-900 p-4">
                         <div className="grid gap-3">
                           {copilotMessages.length === 0 && !pendingCopilotQuestion && !isAskingCopilot && !copilotError ? (
                             <AiEmptyState />
@@ -1723,12 +1859,12 @@ function CandidateSessionContent() {
                           <div ref={copilotMessagesEndRef} />
                         </div>
                       </div>
-                      <div className="border-t border-slate-800 bg-slate-950/60 p-4">
-                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="copilot-question">
+                      <div className="border-t border-slate-700 bg-slate-800/80 p-4">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-400" htmlFor="copilot-question">
                           Ask Copilot
                         </label>
                         <textarea
-                          className="mt-2 min-h-24 w-full resize-none rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500 focus-visible:ring-2 focus-visible:ring-cyan-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="mt-2 min-h-28 w-full resize-none rounded-lg border border-slate-600 bg-slate-950 px-3 py-3 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-400/40 disabled:cursor-not-allowed disabled:opacity-60"
                           disabled={isAskingCopilot || isSubmitted}
                           id="copilot-question"
                           onChange={(event) => {
@@ -1739,44 +1875,16 @@ function CandidateSessionContent() {
                           placeholder="Ask for debugging help, test ideas, code review, or tradeoff analysis."
                           value={copilotQuestion}
                         />
-                        <p className="mt-2 text-xs text-slate-500">
-                          Enter sends. Shift+Enter adds a newline.
-                        </p>
-                        <div className="mt-3">
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <p className="text-xs text-slate-500">Enter sends. Shift+Enter adds a line.</p>
                           <Button
-                            className="h-9 w-full"
+                            className="h-9 px-4"
                             disabled={isAskingCopilot || isSubmitted || copilotQuestion.trim().length === 0}
                             onClick={() => void handleAskCopilot()}
                             type="button"
                           >
                             {isAskingCopilot ? "Sending..." : "Send"}
                           </Button>
-                        </div>
-
-                        <div className="mt-5 border-t border-slate-800 pt-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="candidate-notes">
-                              Final Explanation
-                            </label>
-                            <span className="text-xs text-slate-500">{isSavingNotes ? "Saving..." : "Required to submit"}</span>
-                          </div>
-                          <textarea
-                            className="mt-2 min-h-32 w-full resize-y rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500 focus-visible:ring-2 focus-visible:ring-cyan-400/40 disabled:cursor-not-allowed disabled:opacity-60"
-                            disabled={isSubmitted}
-                            id="candidate-notes"
-                            onChange={(event) => handleNotesChange(event.target.value)}
-                            placeholder="Summarize root cause, changes, tradeoffs, and validation."
-                            value={notes}
-                          />
-                          {finalExplanation.length === 0 && !isSubmitted ? (
-                            <p className="mt-2 text-xs text-amber-300">Add a final explanation before submitting.</p>
-                          ) : null}
-                          {submission ? (
-                            <div className="mt-3 grid gap-2 rounded-md border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
-                              <p>Submitted at {formatSavedAt(submission.submitted_at)}.</p>
-                              <p className="text-emerald-100">Your solution was saved for interviewer review.</p>
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -1792,6 +1900,7 @@ function CandidateSessionContent() {
         isOpen={isSubmitDialogOpen}
         isSubmitting={isSubmitting}
         notes={finalExplanation}
+        testRun={testRun}
         onCancel={() => {
           if (!isSubmitting) {
             setIsSubmitDialogOpen(false);
