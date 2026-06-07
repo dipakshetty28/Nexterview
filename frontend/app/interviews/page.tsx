@@ -11,6 +11,7 @@ import {
   InfoTooltip,
   LoadingState,
   PageHeader,
+  SectionHeader,
   StatusBadge,
   formatDate,
   statusTone,
@@ -109,14 +110,12 @@ function SelectField({
   value,
   options,
   onChange,
-  description,
 }: {
   id: string;
   label: ReactNode;
   value: string;
   options: string[];
   onChange: (value: string) => void;
-  description?: string;
 }) {
   return (
     <label className="grid gap-2 text-sm text-slate-700" htmlFor={id}>
@@ -133,7 +132,38 @@ function SelectField({
           </option>
         ))}
       </select>
-      {description ? <span className="text-xs leading-5 text-slate-500">{description}</span> : null}
+    </label>
+  );
+}
+
+function FilterSelect({
+  id,
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: Array<{ label: string; value: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="min-w-36" htmlFor={id}>
+      <span className="sr-only">{label}</span>
+      <select
+        className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none transition hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+        id={id}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -145,6 +175,9 @@ function InterviewsContent() {
   const [sessions, setSessions] = useState<ResultsDashboardItem[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [stackFilter, setStackFilter] = useState("all");
+  const [difficultyFilter, setDifficultyFilter] = useState("all");
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
@@ -153,6 +186,12 @@ function InterviewsContent() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const canManageInterviews = user?.role === "ADMIN" || user?.role === "INTERVIEWER";
+
+  useEffect(() => {
+    if (window.location.hash === "#create-interview") {
+      setIsCreateOpen(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!token || !canManageInterviews) {
@@ -180,8 +219,24 @@ function InterviewsContent() {
     return counts;
   }, [sessions]);
 
+  const readyReviewCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    sessions
+      .filter((session) => ["submitted", "ready_for_review"].includes(session.status) && session.weighted_score === null)
+      .forEach((session) => counts.set(session.interview_id, (counts.get(session.interview_id) ?? 0) + 1));
+    return counts;
+  }, [sessions]);
+
   const statusOptions = useMemo(
     () => ["all", ...Array.from(new Set(interviews.map((interview) => interview.status))).sort()],
+    [interviews],
+  );
+  const stackOptions = useMemo(
+    () => ["all", ...Array.from(new Set(interviews.flatMap((interview) => interview.stack))).sort()],
+    [interviews],
+  );
+  const difficultyOptions = useMemo(
+    () => ["all", ...Array.from(new Set(interviews.map((interview) => interview.difficulty))).sort()],
     [interviews],
   );
 
@@ -190,11 +245,13 @@ function InterviewsContent() {
     return [...interviews]
       .sort((first, second) => Date.parse(second.created_at) - Date.parse(first.created_at))
       .filter((interview) => statusFilter === "all" || interview.status === statusFilter)
+      .filter((interview) => stackFilter === "all" || interview.stack.includes(stackFilter))
+      .filter((interview) => difficultyFilter === "all" || interview.difficulty === difficultyFilter)
       .filter((interview) => {
         if (!query) {
           return true;
         }
-        const searchable = [
+        return [
           interview.role_title,
           interview.seniority,
           interview.difficulty,
@@ -204,10 +261,12 @@ function InterviewsContent() {
           interview.stack.join(" "),
         ]
           .join(" ")
-          .toLowerCase();
-        return searchable.includes(query);
+          .toLowerCase()
+          .includes(query);
       });
-  }, [interviews, search, statusFilter]);
+  }, [difficultyFilter, interviews, search, stackFilter, statusFilter]);
+
+  const hasFilters = Boolean(search || statusFilter !== "all" || stackFilter !== "all" || difficultyFilter !== "all");
 
   function updateField(field: keyof InterviewFormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -248,8 +307,9 @@ function InterviewsContent() {
     try {
       const created = await createInterview(token, input);
       setInterviews((current) => [created, ...current]);
-      setSuccessMessage("Interview created. Generate a scenario when you are ready to invite candidates.");
+      setSuccessMessage("Interview created. Open it to generate and approve the candidate scenario.");
       setForm((current) => ({ ...current, role_title: "" }));
+      setIsCreateOpen(false);
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to create interview.";
       setError(message);
@@ -273,7 +333,7 @@ function InterviewsContent() {
           interview.id === interviewId ? { ...interview, scenario, status: "SCENARIO_GENERATED" } : interview,
         ),
       );
-      setSuccessMessage("Scenario generated. Open the interview to review and approve it before inviting candidates.");
+      setSuccessMessage("Scenario generated. Open the interview to review and approve it.");
     } catch (requestError: unknown) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to generate scenario.";
       setError(message);
@@ -306,6 +366,13 @@ function InterviewsContent() {
     }
   }
 
+  function clearFilters() {
+    setSearch("");
+    setStatusFilter("all");
+    setStackFilter("all");
+    setDifficultyFilter("all");
+  }
+
   if (!canManageInterviews) {
     return (
       <AppShell>
@@ -324,259 +391,326 @@ function InterviewsContent() {
   return (
     <AppShell>
       <PageHeader
-        description="Create realistic role-based interviews, generate scenarios, and manage candidate sessions."
+        description="Manage scenario readiness, candidate activity, and review work from one operational view."
         eyebrow="Interview operations"
         title="Interviews"
       />
 
-      <section className="mt-6 grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
-        <form
-          className="grid gap-4 rounded-card border border-white/80 bg-white p-5 shadow-panel"
-          id="create-interview"
-          onSubmit={handleCreateInterview}
-        >
-          <div>
-            <h2 className="text-lg font-semibold text-slate-950">Create interview</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              Configure the hiring signal. Scenario generation happens after creation so reviewers can inspect it first.
-            </p>
+      <div className="mt-5 grid gap-4">
+        {error ? <ErrorState message={error} /> : null}
+        {successMessage ? (
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status">
+            {successMessage}
+          </p>
+        ) : null}
+
+        <section className="rounded-card border border-white/80 bg-white p-3 shadow-panel">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+            <div className="relative min-w-64 flex-1">
+              <label className="sr-only" htmlFor="interview-search">
+                Search interviews
+              </label>
+              <input
+                className="h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+                id="interview-search"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search role, scenario, stack, or interview type"
+                value={search}
+              />
+            </div>
+            <div className="flex flex-1 flex-wrap gap-2 xl:justify-end">
+              <FilterSelect
+                id="status-filter"
+                label="Filter by status"
+                onChange={setStatusFilter}
+                options={statusOptions.map((status) => ({
+                  label: status === "all" ? "All statuses" : status.replace(/_/g, " "),
+                  value: status,
+                }))}
+                value={statusFilter}
+              />
+              <FilterSelect
+                id="stack-filter"
+                label="Filter by stack"
+                onChange={setStackFilter}
+                options={stackOptions.map((stack) => ({ label: stack === "all" ? "All stacks" : stack, value: stack }))}
+                value={stackFilter}
+              />
+              <FilterSelect
+                id="difficulty-filter"
+                label="Filter by difficulty"
+                onChange={setDifficultyFilter}
+                options={difficultyOptions.map((difficulty) => ({
+                  label: difficulty === "all" ? "All difficulties" : difficulty,
+                  value: difficulty,
+                }))}
+                value={difficultyFilter}
+              />
+              {hasFilters ? (
+                <Button className="h-10 px-3" onClick={clearFilters} type="button" variant="ghost">
+                  Clear
+                </Button>
+              ) : null}
+              <Button
+                className="h-10"
+                onClick={() => setIsCreateOpen((current) => !current)}
+                type="button"
+                variant={isCreateOpen ? "secondary" : "primary"}
+              >
+                {isCreateOpen ? "Close form" : "Create interview"}
+              </Button>
+            </div>
           </div>
+        </section>
 
-          <FormSection title="Role Details" description="Define who this interview is designed to evaluate.">
-            <Input
-              id="role_title"
-              label="Role title"
-              onChange={(event) => updateField("role_title", event.target.value)}
-              placeholder="Backend Platform Engineer"
-              required
-              value={form.role_title}
+        {isCreateOpen ? (
+          <form
+            className="grid gap-5 rounded-card border border-blue-100 bg-white p-5 shadow-elevated"
+            id="create-interview"
+            onSubmit={handleCreateInterview}
+          >
+            <SectionHeader
+              description="Configure the role and evaluation signal. Scenario generation remains a separate approval step."
+              title="Create interview"
             />
-            <SelectField
-              id="seniority"
-              label="Seniority"
-              onChange={(value) => updateField("seniority", value)}
-              options={SENIORITY_OPTIONS}
-              value={form.seniority}
-            />
-          </FormSection>
+            <div className="grid gap-4 xl:grid-cols-3">
+              <FormSection title="Role" description="Define the candidate profile.">
+                <Input
+                  id="role_title"
+                  label="Role title"
+                  onChange={(event) => updateField("role_title", event.target.value)}
+                  placeholder="Backend Platform Engineer"
+                  required
+                  value={form.role_title}
+                />
+                <SelectField
+                  id="seniority"
+                  label="Seniority"
+                  onChange={(value) => updateField("seniority", value)}
+                  options={SENIORITY_OPTIONS}
+                  value={form.seniority}
+                />
+                <SelectField
+                  id="difficulty"
+                  label="Difficulty"
+                  onChange={(value) => updateField("difficulty", value)}
+                  options={DIFFICULTY_OPTIONS}
+                  value={form.difficulty}
+                />
+              </FormSection>
 
-          <FormSection title="Stack & Interview Type" description="Choose the technologies and shape of work the candidate will see.">
-            <label className="grid gap-2 text-sm text-slate-700" htmlFor="stack">
-              <span className="font-medium">Stack</span>
-              <textarea
-                className="min-h-24 rounded-lg border border-slate-300 bg-white px-3 py-3 text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                id="stack"
-                onChange={(event) => updateField("stack", event.target.value)}
-                placeholder={STACK_OPTIONS.join(", ")}
-                required
-                value={form.stack}
-              />
-              <span className="text-xs leading-5 text-slate-500">Comma-separated. Keep this close to the actual role.</span>
-            </label>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <SelectField
-                id="interview_type"
-                label="Interview type"
-                onChange={(value) => updateField("interview_type", value)}
-                options={INTERVIEW_TYPE_OPTIONS}
-                value={form.interview_type}
-              />
-              <SelectField
-                id="difficulty"
-                label="Difficulty"
-                onChange={(value) => updateField("difficulty", value)}
-                options={DIFFICULTY_OPTIONS}
-                value={form.difficulty}
-              />
+              <FormSection title="Scenario shape" description="Match the work to the real role.">
+                <label className="grid gap-2 text-sm text-slate-700" htmlFor="stack">
+                  <span className="font-medium">Stack</span>
+                  <textarea
+                    className="min-h-24 rounded-lg border border-slate-300 bg-white px-3 py-3 text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    id="stack"
+                    onChange={(event) => updateField("stack", event.target.value)}
+                    placeholder={STACK_OPTIONS.join(", ")}
+                    required
+                    value={form.stack}
+                  />
+                </label>
+                <SelectField
+                  id="interview_type"
+                  label="Interview type"
+                  onChange={(value) => updateField("interview_type", value)}
+                  options={INTERVIEW_TYPE_OPTIONS}
+                  value={form.interview_type}
+                />
+              </FormSection>
+
+              <FormSection title="Session settings" description="Set time and AI assistance.">
+                <Input
+                  id="duration_minutes"
+                  label="Duration minutes"
+                  max={240}
+                  min={30}
+                  onChange={(event) => updateField("duration_minutes", event.target.value)}
+                  required
+                  type="number"
+                  value={form.duration_minutes}
+                />
+                <SelectField
+                  id="allowed_ai_mode"
+                  label={
+                    <>
+                      Allowed AI mode
+                      <InfoTooltip
+                        content="Sets the assistant behavior available to candidates. Their validation and judgment are still evaluated."
+                        label="Allowed AI mode help"
+                      />
+                    </>
+                  }
+                  onChange={(value) => updateField("allowed_ai_mode", value)}
+                  options={AI_MODE_OPTIONS}
+                  value={form.allowed_ai_mode}
+                />
+              </FormSection>
             </div>
-          </FormSection>
 
-          <FormSection title="AI Assistance Settings" description="Candidates may use the AI copilot; their judgment and validation are evaluated.">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                id="duration_minutes"
-                label="Duration minutes"
-                max={240}
-                min={30}
-                onChange={(event) => updateField("duration_minutes", event.target.value)}
-                required
-                type="number"
-                value={form.duration_minutes}
-              />
-              <SelectField
-                id="allowed_ai_mode"
-                label={
-                  <>
-                    Allowed AI mode
-                    <InfoTooltip content="Sets the assistant behavior available to candidates. The platform still evaluates whether they validate AI output and explain their choices." label="Allowed AI mode help" />
-                  </>
-                }
-                onChange={(value) => updateField("allowed_ai_mode", value)}
-                options={AI_MODE_OPTIONS}
-                value={form.allowed_ai_mode}
-              />
-            </div>
-          </FormSection>
-
-          <FormSection title="Evaluation Settings" description="Use candidate-visible and reviewer-visible criteria, without prompt internals.">
-            <label className="grid gap-2 text-sm text-slate-700" htmlFor="evaluation_criteria">
-              <span className="font-medium">Evaluation criteria</span>
+            <FormSection title="Evaluation criteria" description="One criterion per line. These guide scenario and review quality.">
               <textarea
-                className="min-h-36 rounded-lg border border-slate-300 bg-white px-3 py-3 text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                className="min-h-28 rounded-lg border border-slate-300 bg-white px-3 py-3 text-slate-950 shadow-sm outline-none transition hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 id="evaluation_criteria"
                 onChange={(event) => updateField("evaluation_criteria", event.target.value)}
                 required
                 value={form.evaluation_criteria}
               />
-              <span className="text-xs leading-5 text-slate-500">One criterion per line.</span>
-            </label>
-          </FormSection>
+            </FormSection>
 
-          {error ? <ErrorState message={error} /> : null}
-          {successMessage ? (
-            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              {successMessage}
-            </p>
-          ) : null}
-          <Button aria-busy={isCreating} disabled={isCreating} type="submit">
-            {isCreating ? "Creating..." : "Create interview"}
-          </Button>
-        </form>
-
-        <div className="grid min-w-0 gap-3">
-          <section className="rounded-card border border-white/80 bg-white px-4 py-4 shadow-panel">
-            <div className="grid gap-3 lg:grid-cols-[auto_minmax(260px,1fr)_180px] lg:items-center">
-              <div className="min-w-0">
-                <h2 className="text-base font-semibold text-slate-950">Interview list</h2>
-                <p className="text-xs text-slate-500">{filteredInterviews.length} shown</p>
-              </div>
-              <div>
-                <label className="grid gap-2 text-sm text-slate-700" htmlFor="interview-search">
-                  <span className="sr-only">Search interviews</span>
-                  <input
-                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    id="interview-search"
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search role, stack, type"
-                    value={search}
-                  />
-                </label>
-              </div>
-              <div>
-                <label className="grid gap-2 text-sm text-slate-700" htmlFor="status-filter">
-                  <span className="sr-only">Filter by status</span>
-                  <select
-                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    id="status-filter"
-                    onChange={(event) => setStatusFilter(event.target.value)}
-                    value={statusFilter}
-                  >
-                    {statusOptions.map((status) => (
-                      <option key={status} value={status}>
-                        {status === "all" ? "All statuses" : status}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setIsCreateOpen(false)} type="button" variant="ghost">
+                Cancel
+              </Button>
+              <Button aria-busy={isCreating} disabled={isCreating} type="submit">
+                {isCreating ? "Creating..." : "Create interview"}
+              </Button>
             </div>
-          </section>
+          </form>
+        ) : null}
 
-          {isLoading ? <LoadingState label="Loading interviews" rows={4} /> : null}
+        {isLoading ? <LoadingState label="Loading interviews" rows={4} /> : null}
 
-          {!isLoading && interviews.length === 0 ? (
-            <EmptyState
-              actionHref="#create-interview"
-              actionLabel="Create interview"
-              description="Create an interview, generate a scenario, then send an invite from the detail page."
-              title="No interviews yet"
-            />
-          ) : null}
+        {!isLoading && interviews.length === 0 ? (
+          <EmptyState
+            action={
+              <Button onClick={() => setIsCreateOpen(true)} type="button">
+                Create interview
+              </Button>
+            }
+            description="Configure a role, generate a realistic scenario, and invite the first candidate."
+            title="No interviews yet"
+          />
+        ) : null}
 
-          {!isLoading && interviews.length > 0 && filteredInterviews.length === 0 ? (
-            <EmptyState description="Try a different search term or status filter." title="No interviews match your filters" />
-          ) : null}
+        {!isLoading && interviews.length > 0 ? (
+          <section className="overflow-hidden rounded-card border border-white/80 bg-white shadow-panel">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <SectionHeader
+                aside={<span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{filteredInterviews.length} shown</span>}
+                description="Scenario readiness, candidate volume, and outstanding review work."
+                title="Interview pipeline"
+              />
+            </div>
 
-          {filteredInterviews.length ? (
-            <section className="overflow-hidden rounded-card border border-white/80 bg-white shadow-panel">
+            {filteredInterviews.length === 0 ? (
+              <div className="p-5">
+                <EmptyState
+                  action={
+                    <Button onClick={clearFilters} type="button" variant="secondary">
+                      Clear filters
+                    </Button>
+                  }
+                  description="Try a different search term or reset the active filters."
+                  embedded
+                  title="No interviews match"
+                />
+              </div>
+            ) : (
               <div className="overflow-x-auto">
                 <table className="table-surface">
                   <thead className="table-head">
                     <tr>
-                      <th className="px-4 py-3 font-medium">Title</th>
-                      <th className="px-4 py-3 font-medium">Stack</th>
-                      <th className="px-4 py-3 font-medium">Difficulty</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium">Candidates</th>
-                      <th className="px-4 py-3 font-medium">Created</th>
-                      <th className="px-4 py-3 font-medium">Actions</th>
+                      <th className="px-5 py-3 font-medium">Interview</th>
+                      <th className="px-5 py-3 font-medium">Stack</th>
+                      <th className="px-5 py-3 font-medium">Status</th>
+                      <th className="px-5 py-3 font-medium">Candidates</th>
+                      <th className="px-5 py-3 font-medium">Review status</th>
+                      <th className="px-5 py-3 font-medium">Created</th>
+                      <th className="px-5 py-3 text-right font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {filteredInterviews.map((interview) => (
-                      <tr className="table-row" key={interview.id}>
-                        <td className="max-w-xs px-4 py-4">
-                          <p className="font-medium text-slate-950">{interview.scenario?.title ?? interview.role_title}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {interview.role_title} / {interview.interview_type} / {interview.duration_minutes} min
-                          </p>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex max-w-sm flex-wrap gap-1.5">
-                            {interview.stack.slice(0, 4).map((item) => (
-                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600" key={item}>
-                                {item}
-                              </span>
-                            ))}
-                            {interview.stack.length > 4 ? <span className="text-xs text-slate-500">+{interview.stack.length - 4}</span> : null}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-slate-700">
-                          {interview.seniority} / {interview.difficulty}
-                        </td>
-                        <td className="px-4 py-4">
-                          <StatusBadge label={interview.status} tone={statusTone(interview.status)} />
-                        </td>
-                        <td className="px-4 py-4 text-slate-700">{sessionCounts.get(interview.id) ?? 0}</td>
-                        <td className="px-4 py-4 text-slate-600">{formatDate(interview.created_at)}</td>
-                        <td className="px-4 py-4">
-                          <div className="flex flex-wrap gap-2">
-                            <Link
-                              className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"
-                              href={`/interviews/${interview.id}`}
-                            >
-                              Details
+                    {filteredInterviews.map((interview) => {
+                      const candidateCount = sessionCounts.get(interview.id) ?? 0;
+                      const readyCount = readyReviewCounts.get(interview.id) ?? 0;
+                      return (
+                        <tr className="table-row" key={interview.id}>
+                          <td className="max-w-sm px-5 py-3.5">
+                            <Link className="font-semibold text-slate-950 hover:text-blue-700" href={`/interviews/${interview.id}`}>
+                              {interview.role_title}
                             </Link>
-                            <Button
-                              className="h-9 px-3 text-xs"
-                              aria-busy={generatingId === interview.id}
-                              disabled={generatingId === interview.id}
-                              onClick={() => void handleGenerateScenario(interview.id)}
-                              type="button"
-                            >
-                              {generatingId === interview.id ? "Generating..." : interview.scenario ? "Regenerate" : "Generate"}
-                            </Button>
-                            <Button
-                              className="h-9 px-3 text-xs"
-                              aria-busy={deletingId === interview.id}
-                              disabled={deletingId === interview.id}
-                              onClick={() => void handleDeleteInterview(interview)}
-                              type="button"
-                              variant="danger"
-                            >
-                              {deletingId === interview.id ? "Deleting..." : "Delete"}
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                            <p className="mt-1 truncate text-xs text-slate-500">
+                              {interview.scenario?.title ?? interview.interview_type} / {interview.seniority} / {interview.difficulty}
+                            </p>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="flex max-w-xs flex-wrap gap-1.5">
+                              {interview.stack.slice(0, 2).map((item) => (
+                                <span
+                                  className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600"
+                                  key={item}
+                                >
+                                  {item}
+                                </span>
+                              ))}
+                              {interview.stack.length > 2 ? (
+                                <span className="px-1 py-1 text-xs text-slate-500">+{interview.stack.length - 2}</span>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <StatusBadge label={interview.status} tone={statusTone(interview.status)} />
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="font-semibold text-slate-900">{candidateCount}</span>
+                            <span className="ml-1 text-xs text-slate-500">sessions</span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <StatusBadge
+                              label={readyCount ? `${readyCount} ready` : candidateCount ? "Up to date" : "No sessions"}
+                              tone={readyCount ? "warning" : candidateCount ? "success" : "neutral"}
+                            />
+                          </td>
+                          <td className="whitespace-nowrap px-5 py-3.5 text-slate-600">{formatDate(interview.created_at)}</td>
+                          <td className="px-5 py-3.5">
+                            <div className="flex justify-end">
+                              <details className="relative">
+                                <summary className="flex h-9 cursor-pointer list-none items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50">
+                                  Actions
+                                </summary>
+                                <div className="absolute right-0 z-20 mt-2 grid w-48 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-elevated">
+                                  <Link
+                                    className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950"
+                                    href={`/interviews/${interview.id}`}
+                                  >
+                                    Open control center
+                                  </Link>
+                                  <button
+                                    className="rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 disabled:opacity-50"
+                                    disabled={generatingId === interview.id}
+                                    onClick={() => void handleGenerateScenario(interview.id)}
+                                    type="button"
+                                  >
+                                    {generatingId === interview.id
+                                      ? "Generating..."
+                                      : interview.scenario
+                                        ? "Regenerate scenario"
+                                        : "Generate scenario"}
+                                  </button>
+                                  <button
+                                    className="rounded-md px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                                    disabled={deletingId === interview.id}
+                                    onClick={() => void handleDeleteInterview(interview)}
+                                    type="button"
+                                  >
+                                    {deletingId === interview.id ? "Deleting..." : "Delete interview"}
+                                  </button>
+                                </div>
+                              </details>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-            </section>
-          ) : null}
-        </div>
-      </section>
+            )}
+          </section>
+        ) : null}
+      </div>
     </AppShell>
   );
 }

@@ -72,13 +72,13 @@ function DashboardContent() {
     const completedSessions = sessions.filter((session) =>
       ["submitted", "ready_for_review", "review_in_progress", "reviewed", "review_failed"].includes(session.status),
     ).length;
-    const pendingReviews = sessions.filter(
-      (session) => ["submitted", "ready_for_review", "review_in_progress"].includes(session.status) && session.weighted_score === null,
+    const readyForReview = sessions.filter(
+      (session) => ["submitted", "ready_for_review"].includes(session.status) && session.weighted_score === null,
     ).length;
     return {
       activeInterviews,
       completedSessions,
-      pendingReviews,
+      readyForReview,
       averageScore: averageScore(sessions),
     };
   }, [interviews, sessions]);
@@ -110,7 +110,7 @@ function DashboardContent() {
     <AppShell>
       <PageHeader
         actions={
-          <ActionButton href="/interviews">
+          <ActionButton href="/interviews#create-interview">
             Create interview
           </ActionButton>
         }
@@ -123,11 +123,34 @@ function DashboardContent() {
         {error ? <ErrorState message={error} /> : null}
         {isLoading ? <LoadingState label="Loading hiring workspace" rows={3} /> : null}
 
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard description="Configured interviews in this organization." label="Active interviews" tone="info" value={metrics.activeInterviews} />
-          <StatCard description="Submitted or reviewed candidate sessions." label="Completed sessions" tone="success" value={metrics.completedSessions} />
-          <StatCard description="Submitted sessions waiting for review." label="Pending reviews" tone="warning" value={metrics.pendingReviews} />
-          <StatCard description="Across reviewed sessions." label="Average score" value={metrics.averageScore ?? "--"} />
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            description="Configured interviews not marked archived."
+            icon="AI"
+            label="Active interviews"
+            tone="info"
+            value={metrics.activeInterviews}
+          />
+          <StatCard
+            description="Submitted sessions waiting for an agent or interviewer review."
+            icon="RR"
+            label="Ready for review"
+            tone="warning"
+            value={metrics.readyForReview}
+          />
+          <StatCard
+            description="Candidate sessions that reached submission or review."
+            icon="CS"
+            label="Completed sessions"
+            tone="success"
+            value={metrics.completedSessions}
+          />
+          <StatCard
+            description={metrics.averageScore === null ? "No reviewed sessions have a score yet." : "Across sessions with a completed review."}
+            icon="AVG"
+            label="Average score"
+            value={metrics.averageScore ?? "--"}
+          />
         </section>
 
         {!isLoading && interviews.length === 0 && sessions.length === 0 ? (
@@ -158,6 +181,7 @@ function DashboardContent() {
                 actionHref="/interviews"
                 actionLabel="Invite candidate"
                 description="Candidate sessions will appear here after invites are created and candidates begin interviews."
+                embedded
                 title="No candidate sessions yet"
               />
             </div>
@@ -172,7 +196,7 @@ function DashboardContent() {
                     <th className="px-5 py-3 font-medium">Interview</th>
                     <th className="px-5 py-3 font-medium">Status</th>
                     <th className="px-5 py-3 font-medium">Score</th>
-                    <th className="px-5 py-3 font-medium">Updated</th>
+                    <th className="px-5 py-3 font-medium">Latest activity</th>
                     <th className="px-5 py-3 font-medium">Action</th>
                   </tr>
                 </thead>

@@ -6,14 +6,13 @@ import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/app/app-shell";
 import {
+  ActionButton,
   EmptyState,
   ErrorState,
-  FloatingHint,
   InfoTooltip,
   LoadingState,
   PageHeader,
   SectionHeader,
-  StatCard,
   StatusBadge,
   formatDateTime,
   statusTone,
@@ -39,6 +38,7 @@ import type {
   InterviewSubmissionResult,
   InviteTokenResponse,
   ProjectFile,
+  Scenario,
   ScenarioFilePayload,
   ScenarioProject,
 } from "@/lib/types";
@@ -68,10 +68,10 @@ function ProjectFilesPreview({ project }: { project: ScenarioProject }) {
             {project.framework ?? "Project"} / {project.package_manager ?? "package manager"} / {project.files.length} files
           </p>
         </div>
-        <div className="grid gap-1 text-xs text-slate-600 md:text-right">
-          <span>Environment: pre-provisioned</span>
-          <span>Checks: pass/fail runner configured</span>
-          {project.entrypoint ? <span>Entrypoint: {project.entrypoint}</span> : null}
+        <div className="flex flex-wrap gap-2 md:justify-end">
+          {project.framework ? <StatusBadge label={project.framework} tone="info" /> : null}
+          {project.package_manager ? <StatusBadge label={project.package_manager} /> : null}
+          {project.entrypoint ? <StatusBadge label={project.entrypoint} /> : null}
         </div>
       </div>
       <div className="grid gap-2">
@@ -116,30 +116,32 @@ function ReviewList({ title, items }: { title: string; items: string[] }) {
 function CandidateSessionRow({ submission }: { submission: InterviewSubmissionResult }) {
   return (
     <tr className="table-row">
-      <td className="px-5 py-4">
+      <td className="px-5 py-3.5">
         <p className="font-medium text-slate-950">{submission.candidate_name}</p>
         <p className="mt-1 text-xs text-slate-500">{submission.candidate_email}</p>
       </td>
-      <td className="px-5 py-4">
-        <StatusBadge label={submission.status} tone={statusTone(submission.status)} />
+      <td className="px-5 py-3.5">
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge label={submission.status} tone={statusTone(submission.status)} />
+          {submission.invite_status ? (
+            <StatusBadge label={submission.invite_status} tone={statusTone(submission.invite_status)} />
+          ) : null}
+        </div>
       </td>
-      <td className="px-5 py-4">
-        {submission.invite_status ? (
-          <StatusBadge label={submission.invite_status} tone={statusTone(submission.invite_status)} />
-        ) : (
-          <span className="text-slate-600">No invite</span>
-        )}
+      <td className="px-5 py-3.5 text-sm text-slate-600">
+        <p>Started {formatDateTime(submission.started_at)}</p>
+        <p className="mt-1 text-xs">Submitted {formatDateTime(submission.submitted_at)}</p>
       </td>
-      <td className="px-5 py-4 text-slate-600">{formatDateTime(submission.started_at)}</td>
-      <td className="px-5 py-4 text-slate-600">{formatDateTime(submission.submitted_at)}</td>
-      <td className="px-5 py-4 text-slate-700">{submission.test_output ? "Test output submitted" : "No test output"}</td>
-      <td className="px-5 py-4">
+      <td className="px-5 py-3.5">
         {submission.submission_id ? (
-          <Link className="font-semibold text-blue-700 hover:text-blue-900" href={`/results/${submission.session_id}`}>
+          <Link
+            className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"
+            href={`/results/${submission.session_id}`}
+          >
             View result
           </Link>
         ) : (
-          <span className="text-slate-600">Pending submission</span>
+          <span className="text-sm text-slate-500">Awaiting submission</span>
         )}
       </td>
     </tr>
@@ -192,38 +194,212 @@ function InviteRow({
   const candidateLabel = invite.candidate_name || invite.candidate_email || "Generic invite";
   return (
     <tr className="table-row">
-      <td className="px-5 py-4">
+      <td className="px-5 py-3.5">
         <p className="font-medium text-slate-950">{candidateLabel}</p>
         <p className="mt-1 text-xs text-slate-500">{invite.candidate_email ?? "Any candidate in this organization"}</p>
       </td>
-      <td className="px-5 py-4">
-        <StatusBadge label={invite.status} tone={statusTone(invite.status)} />
+      <td className="px-5 py-3.5">
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge label={invite.status} tone={statusTone(invite.status)} />
+          {invite.session_status ? <StatusBadge label={invite.session_status} tone={statusTone(invite.session_status)} /> : null}
+        </div>
       </td>
-      <td className="px-5 py-4 text-slate-600">{formatDateTime(invite.expires_at)}</td>
-      <td className="px-5 py-4 text-slate-600">{formatDateTime(invite.used_at)}</td>
-      <td className="max-w-sm px-5 py-4">
+      <td className="min-w-80 px-5 py-3.5">
         {invite.invite_url ? (
-          <p className="break-all rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-blue-700">
-            {invite.invite_url}
-          </p>
+          <div className="flex gap-2">
+            <input
+              aria-label={`Invite link for ${candidateLabel}`}
+              className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-600"
+              readOnly
+              title={invite.invite_url}
+              value={invite.invite_url}
+            />
+            <Button
+              className="h-9 px-3 text-xs"
+              disabled={!invite.invite_url || isBusy}
+              onClick={() => onCopy(invite)}
+              type="button"
+              variant="secondary"
+            >
+              {isCopied ? "Copied" : "Copy"}
+            </Button>
+          </div>
         ) : (
           <span className="text-xs text-slate-500">Legacy link unavailable.</span>
         )}
       </td>
-      <td className="px-5 py-4">
+      <td className="whitespace-nowrap px-5 py-3.5">
+        <StatusBadge
+          label={invite.status === "expired" ? "Expired" : `Expires ${formatDateTime(invite.expires_at)}`}
+          tone={invite.status === "expired" ? "danger" : invite.status === "active" ? "warning" : "neutral"}
+        />
+        {invite.used_at ? <p className="mt-1 text-xs text-slate-500">Used {formatDateTime(invite.used_at)}</p> : null}
+      </td>
+      <td className="px-5 py-3.5">
         <div className="flex flex-wrap gap-2">
-          <Button aria-busy={isBusy} disabled={!invite.invite_url || isBusy} onClick={() => onCopy(invite)} type="button" variant="ghost">
-            {isCopied ? "Copied" : "Copy"}
-          </Button>
-          <Button aria-busy={isBusy} disabled={invite.status !== "active" || isBusy} onClick={() => onRegenerate(invite)} type="button" variant="secondary">
+          <Button
+            className="h-9 px-3 text-xs"
+            aria-busy={isBusy}
+            disabled={invite.status !== "active" || isBusy}
+            onClick={() => onRegenerate(invite)}
+            type="button"
+            variant="secondary"
+          >
             Regenerate
           </Button>
-          <Button aria-busy={isBusy} disabled={invite.status !== "active" || isBusy} onClick={() => onRevoke(invite)} type="button" variant="ghost">
+          <Button
+            className="h-9 px-3 text-xs"
+            aria-busy={isBusy}
+            disabled={invite.status !== "active" || isBusy}
+            onClick={() => onRevoke(invite)}
+            type="button"
+            variant="danger"
+          >
             Revoke
           </Button>
         </div>
       </td>
     </tr>
+  );
+}
+
+type ScenarioTab = "task" | "files" | "tests" | "rubric";
+
+function ScenarioPreview({
+  scenario,
+  scenarioStatus,
+}: {
+  scenario: Scenario;
+  scenarioStatus: string;
+}) {
+  const [activeTab, setActiveTab] = useState<ScenarioTab>("task");
+  const tabs: Array<{ id: ScenarioTab; label: string }> = [
+    { id: "task", label: "Candidate task" },
+    { id: "files", label: `Files (${scenario.starter_files_json.length})` },
+    { id: "tests", label: `Tests (${scenario.test_files_json.length})` },
+    { id: "rubric", label: "Interviewer rubric" },
+  ];
+
+  return (
+    <section className="overflow-hidden rounded-card border border-white/80 bg-white shadow-panel" id="scenario-preview">
+      <div className="border-b border-slate-200 px-5 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Scenario preview</p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">{scenario.title}</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{scenario.business_context}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge label={scenarioStatus} tone={statusTone(scenarioStatus)} />
+            <StatusBadge label={scenario.language} tone="info" />
+            {scenario.framework ? <StatusBadge label={scenario.framework} /> : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
+        <div aria-label="Scenario preview sections" className="flex flex-wrap gap-1" role="tablist">
+          {tabs.map((tab) => (
+            <button
+              aria-selected={activeTab === tab.id}
+              className={
+                activeTab === tab.id
+                  ? "rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white shadow-sm"
+                  : "rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950"
+              }
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              role="tab"
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-5">
+        {activeTab === "task" ? (
+          <div className="grid gap-5">
+            <section className="rounded-card border border-blue-100 bg-blue-50/50 p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge label={scenario.ai_mode} tone="info" />
+                {scenario.validation_command ? (
+                  <code className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">
+                    {scenario.validation_command}
+                  </code>
+                ) : null}
+              </div>
+              <h3 className="mt-4 text-base font-semibold text-slate-950">{scenario.candidate_task_summary}</h3>
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">{scenario.candidate_instructions}</p>
+            </section>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <ReviewList items={scenario.visible_requirements} title="Visible requirements" />
+              <ReviewList items={scenario.constraints} title="Constraints" />
+              <ReviewList items={scenario.expected_behavior} title="Expected behavior" />
+            </div>
+
+            {scenario.logs_or_bug_report ? (
+              <section>
+                <h3 className="text-sm font-semibold text-slate-950">Candidate-visible logs or bug report</h3>
+                <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-slate-300">
+                  {scenario.logs_or_bug_report}
+                </pre>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+
+        {activeTab === "files" ? (
+          <div className="grid gap-4">
+            {scenario.project ? <ProjectFilesPreview project={scenario.project} /> : null}
+            <ScenarioFilesPreview files={scenario.starter_files_json} title="Candidate-visible starter files" />
+          </div>
+        ) : null}
+
+        {activeTab === "tests" ? (
+          <div className="grid gap-4">
+            <section className="rounded-card border border-slate-200 bg-slate-50 p-4">
+              <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                Validation guidance
+                <InfoTooltip
+                  content="Candidates see the validation guidance. Hidden reviewer checks remain separate from the candidate brief."
+                  label="Test validation command help"
+                />
+              </h3>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{scenario.validation_instructions}</p>
+              {scenario.validation_command ? (
+                <code className="mt-3 block w-fit rounded-md border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800">
+                  {scenario.validation_command}
+                </code>
+              ) : null}
+            </section>
+            <ScenarioFilesPreview files={scenario.test_files_json} title="Candidate-visible tests" />
+          </div>
+        ) : null}
+
+        {activeTab === "rubric" ? (
+          <div className="grid gap-5">
+            <div className="rounded-card border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">Interviewer-only evaluation material</p>
+              <p className="mt-1 text-sm leading-6 text-amber-800">
+                This section is never included in the candidate experience.
+              </p>
+            </div>
+            <section className="rounded-card border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold text-slate-950">Expected solution summary</h3>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{scenario.expected_solution_summary}</p>
+            </section>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <ReviewList items={scenario.hidden_evaluation_points} title="Hidden evaluation points" />
+              <ReviewList items={scenario.hidden_rubric} title="Hidden rubric" />
+              <ReviewList items={scenario.interviewer_rubric} title="Interviewer rubric" />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -249,10 +425,10 @@ function InterviewDetailContent() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const canManageInterviews = user?.role === "ADMIN" || user?.role === "INTERVIEWER";
-  const submittedCount = submissions.filter((submission) =>
-    ["submitted", "ready_for_review", "review_in_progress", "reviewed", "review_failed"].includes(submission.status),
+  const readyReviewCount = submissions.filter((submission) =>
+    ["submitted", "ready_for_review"].includes(submission.status),
   ).length;
-  const reviewedCount = submissions.filter((submission) => submission.status === "reviewed").length;
+  const activeInviteCount = invites.filter((invite) => invite.status === "active").length;
   const scenarioStatus = interview?.scenario?.status ?? "draft";
   const scenarioReady = scenarioStatus === "approved";
 
@@ -457,71 +633,113 @@ function InterviewDetailContent() {
         actions={
           interview ? (
             <>
-              <Button aria-busy={isGenerating} disabled={isGenerating} onClick={() => void handleGenerateScenario()} type="button">
-                {isGenerating ? "Generating..." : interview.scenario ? "Regenerate scenario" : "Generate scenario"}
-              </Button>
-              <Button
-                aria-busy={isApproving}
-                disabled={isApproving || !interview.scenario || scenarioReady}
-                onClick={() => void handleApproveScenario()}
-                type="button"
-                variant="secondary"
-              >
-                {isApproving ? "Approving..." : scenarioReady ? "Scenario approved" : "Approve scenario"}
-              </Button>
+              <ActionButton href="/interviews" variant="secondary">
+                Back to interviews
+              </ActionButton>
               <Button aria-busy={isDeleting} disabled={isDeleting} onClick={() => void handleDeleteInterview()} type="button" variant="danger">
-                {isDeleting ? "Deleting..." : "Delete"}
+                {isDeleting ? "Deleting..." : "Delete interview"}
               </Button>
             </>
           ) : null
         }
-        description="Review scenario readiness, invite candidates, and track session outcomes."
-        eyebrow="Interview detail"
+        description={
+          interview
+            ? `${interview.seniority} / ${interview.interview_type} / ${interview.duration_minutes} minutes / created ${formatDateTime(interview.created_at)}`
+            : "Review scenario readiness, invite candidates, and track session outcomes."
+        }
+        eyebrow="Interview control center"
+        meta={
+          interview ? (
+            <>
+              <StatusBadge label={interview.status} tone={statusTone(interview.status)} />
+              <StatusBadge label={`Scenario: ${scenarioStatus}`} tone={statusTone(scenarioStatus)} />
+              <StatusBadge label={interview.difficulty} />
+              <StatusBadge label={interview.allowed_ai_mode} tone="info" />
+              {interview.stack.slice(0, 3).map((item) => (
+                <StatusBadge key={item} label={item} />
+              ))}
+            </>
+          ) : null
+        }
         title={interview?.role_title ?? "Interview details"}
       />
 
-      <section className="mt-6 grid gap-5">
+      <section className="mt-5 grid gap-4">
         {isLoading ? <LoadingState label="Loading interview" rows={4} /> : null}
         {error ? <ErrorState message={error} /> : null}
         {successMessage ? (
-          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status">
             {successMessage}
           </p>
         ) : null}
 
         {interview ? (
           <>
-            <section className="grid gap-4 lg:grid-cols-4">
-              <StatCard description={`${interview.seniority} / ${interview.difficulty}`} label="Role" value={interview.role_title} />
-              <StatCard description={interview.interview_type} label="Duration" value={`${interview.duration_minutes} min`} />
-              <StatCard
-                description={scenarioReady ? "Candidates can start approved invites." : "Review and approve before inviting."}
-                label="Scenario status"
-                tone={statusTone(scenarioStatus)}
-                value={scenarioStatus}
-              />
-              <StatCard description={`${submittedCount} submitted, ${reviewedCount} reviewed`} label="Candidate sessions" value={submissions.length} />
-            </section>
-
-            <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge label={interview.status} tone={statusTone(interview.status)} />
-                    <StatusBadge label={`Scenario: ${scenarioStatus}`} tone={statusTone(scenarioStatus)} />
-                    <StatusBadge label={interview.allowed_ai_mode} tone="info" />
+            <section className="grid gap-4 xl:grid-cols-[0.75fr_1.25fr]">
+              <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Scenario readiness</p>
+                    <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                      {interview.scenario?.title ?? "Scenario not generated"}
+                    </h2>
                   </div>
-                  <h2 className="mt-3 text-lg font-semibold text-slate-950">{interview.role_title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Created {formatDateTime(interview.created_at)}. Stack: {interview.stack.join(", ")}
-                  </p>
+                  <StatusBadge label={scenarioStatus} tone={statusTone(scenarioStatus)} />
                 </div>
-
-                <div className="grid w-full gap-3 xl:w-[28rem]">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-slate-950">Candidate invite</p>
-                    <InfoTooltip content="Invite links remain visible here with expiry, usage, regeneration, and revocation status." label="Invite expiry help" />
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  {scenarioReady
+                    ? "Approved for candidate invites and session starts."
+                    : interview.scenario
+                      ? "Review the task, tests, and hidden rubric before approval."
+                      : "Generate a stack-matched scenario before creating candidate access."}
+                </p>
+                <dl className="mt-5 grid grid-cols-3 border-y border-slate-200 py-4 text-center">
+                  <div>
+                    <dt className="text-xs text-slate-500">Active invites</dt>
+                    <dd className="mt-1 text-xl font-semibold text-slate-950">{activeInviteCount}</dd>
                   </div>
+                  <div className="border-x border-slate-200">
+                    <dt className="text-xs text-slate-500">Sessions</dt>
+                    <dd className="mt-1 text-xl font-semibold text-slate-950">{submissions.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Ready to review</dt>
+                    <dd className="mt-1 text-xl font-semibold text-slate-950">{readyReviewCount}</dd>
+                  </div>
+                </dl>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button
+                    aria-busy={isGenerating}
+                    disabled={isGenerating}
+                    onClick={() => void handleGenerateScenario()}
+                    type="button"
+                    variant="secondary"
+                  >
+                    {isGenerating ? "Generating..." : interview.scenario ? "Regenerate scenario" : "Generate scenario"}
+                  </Button>
+                  <Button
+                    aria-busy={isApproving}
+                    disabled={isApproving || !interview.scenario || scenarioReady}
+                    onClick={() => void handleApproveScenario()}
+                    type="button"
+                  >
+                    {isApproving ? "Approving..." : scenarioReady ? "Approved" : "Approve scenario"}
+                  </Button>
+                  {interview.scenario ? (
+                    <ActionButton href="#scenario-preview" variant="ghost">
+                      Review scenario
+                    </ActionButton>
+                  ) : null}
+                </div>
+              </section>
+
+              <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel" id="invite-composer">
+                <SectionHeader
+                  aside={<StatusBadge label={`${activeInviteCount} active`} tone={activeInviteCount ? "success" : "neutral"} />}
+                  description="Create candidate-specific access or a small batch of generic, single-use links."
+                  title="Create candidate invite"
+                />
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <Input
                     id="candidate_invite_name"
                     label="Candidate name"
@@ -538,38 +756,26 @@ function InterviewDetailContent() {
                     type="email"
                     value={inviteEmail}
                   />
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Input
-                      id="candidate_invite_expiry"
-                      label="Expires in days"
-                      max={60}
-                      min={1}
-                      onChange={(event) => setInviteExpiryDays(Number(event.target.value) || DEFAULT_INVITE_DAYS)}
-                      type="number"
-                      value={inviteExpiryDays}
-                    />
-                    <Input
-                      id="candidate_invite_count"
-                      label="Number of links"
-                      max={25}
-                      min={1}
-                      onChange={(event) => setInviteCount(Number(event.target.value) || DEFAULT_INVITE_COUNT)}
-                      type="number"
-                      value={inviteCount}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      className="flex-1"
-                      aria-busy={isCreatingInvite}
-                      disabled={isCreatingInvite || !scenarioReady}
-                      onClick={() => void handleCreateInvite()}
-                      type="button"
-                      variant="secondary"
-                    >
-                      {isCreatingInvite ? "Creating invite..." : "Create invite"}
-                    </Button>
-                  </div>
+                  <Input
+                    id="candidate_invite_expiry"
+                    label="Expires in days"
+                    max={60}
+                    min={1}
+                    onChange={(event) => setInviteExpiryDays(Number(event.target.value) || DEFAULT_INVITE_DAYS)}
+                    type="number"
+                    value={inviteExpiryDays}
+                  />
+                  <Input
+                    id="candidate_invite_count"
+                    label="Number of links"
+                    max={25}
+                    min={1}
+                    onChange={(event) => setInviteCount(Number(event.target.value) || DEFAULT_INVITE_COUNT)}
+                    type="number"
+                    value={inviteCount}
+                  />
+                </div>
+                <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
                   {!interview.scenario ? (
                     <p className="text-xs text-slate-500">Generate the scenario before creating an invite.</p>
                   ) : !scenarioReady ? (
@@ -579,25 +785,35 @@ function InterviewDetailContent() {
                       Leave email blank to create generic single-use links for candidates in this organization.
                     </p>
                   )}
+                  <Button
+                    className="shrink-0"
+                    aria-busy={isCreatingInvite}
+                    disabled={isCreatingInvite || !scenarioReady}
+                    onClick={() => void handleCreateInvite()}
+                    type="button"
+                  >
+                    {isCreatingInvite ? "Creating..." : "Create invite"}
+                  </Button>
                 </div>
-              </div>
+              </section>
             </section>
 
             <section className="overflow-hidden rounded-card border border-white/80 bg-white shadow-panel">
               <div className="border-b border-slate-200 px-5 py-4">
                 <SectionHeader
                   aside={<span className="text-xs uppercase tracking-wide text-slate-500">{invites.length} invites</span>}
-                  description="Persistent candidate links with status, expiry, and regeneration controls."
-                  title="Invite links"
+                  description="Active and historical access links with expiry and lifecycle controls."
+                  title="Invite management"
                 />
               </div>
               {invites.length === 0 ? (
-                <div className="p-5">
-                  <EmptyState
-                    description="Create a candidate-specific or generic invite. Existing links will remain visible here when you reopen the interview."
-                    title="No invites yet"
-                  />
-                </div>
+                <EmptyState
+                  actionHref="#invite-composer"
+                  actionLabel="Create invite"
+                  description="Create a candidate-specific or generic link after the scenario is approved."
+                  embedded
+                  title="No invites yet"
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="table-surface">
@@ -605,9 +821,8 @@ function InterviewDetailContent() {
                       <tr>
                         <th className="px-5 py-3 font-medium">Candidate</th>
                         <th className="px-5 py-3 font-medium">Status</th>
-                        <th className="px-5 py-3 font-medium">Expires</th>
-                        <th className="px-5 py-3 font-medium">Used</th>
                         <th className="px-5 py-3 font-medium">Invite URL</th>
+                        <th className="px-5 py-3 font-medium">Expiry</th>
                         <th className="px-5 py-3 font-medium">Actions</th>
                       </tr>
                     </thead>
@@ -638,23 +853,21 @@ function InterviewDetailContent() {
                 />
               </div>
               {submissions.length === 0 ? (
-                <div className="p-5">
-                  <EmptyState
-                    description="Create an invite and share it with a candidate. Sessions will appear here after invite use."
-                    title="No candidate sessions yet"
-                  />
-                </div>
+                <EmptyState
+                  actionHref="#invite-composer"
+                  actionLabel="Create invite"
+                  description="Candidate activity and review readiness will appear after an invite is used."
+                  embedded
+                  title="No candidate sessions yet"
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="table-surface">
                     <thead className="table-head">
                       <tr>
                         <th className="px-5 py-3 font-medium">Candidate</th>
-                        <th className="px-5 py-3 font-medium">Session</th>
-                        <th className="px-5 py-3 font-medium">Invite</th>
-                        <th className="px-5 py-3 font-medium">Started</th>
-                        <th className="px-5 py-3 font-medium">Submitted</th>
-                        <th className="px-5 py-3 font-medium">Validation</th>
+                        <th className="px-5 py-3 font-medium">Status</th>
+                        <th className="px-5 py-3 font-medium">Timeline</th>
                         <th className="px-5 py-3 font-medium">Result</th>
                       </tr>
                     </thead>
@@ -668,77 +881,19 @@ function InterviewDetailContent() {
               )}
             </section>
 
-            {interview.scenario ? (
-              <section className="grid gap-5 rounded-card border border-white/80 bg-white p-5 shadow-panel">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-blue-700">Scenario preview</p>
-                    <h2 className="mt-1 text-xl font-semibold text-slate-950">{interview.scenario.title}</h2>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{interview.scenario.business_context}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <StatusBadge label={scenarioStatus} tone={statusTone(scenarioStatus)} />
-                    <StatusBadge label="Reviewer visible" tone="info" />
-                  </div>
-                </div>
-
-                <FloatingHint title="Scenario quality gate" tone={scenarioReady ? "success" : "warning"}>
-                  {scenarioReady
-                    ? "This scenario is approved, so candidate invite links can be created and started."
-                    : "Review the candidate-visible brief, validation guidance, and hidden rubric before approving this scenario."}
-                </FloatingHint>
-
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <ReviewList items={interview.scenario.visible_requirements} title="Visible requirements" />
-                  <ReviewList items={interview.scenario.constraints} title="Candidate constraints" />
-                  <ReviewList items={interview.scenario.expected_behavior} title="Expected behavior" />
-                  <ReviewList items={interview.scenario.hidden_evaluation_points} title="Hidden evaluation points" />
-                  <ReviewList items={interview.scenario.hidden_rubric} title="Hidden rubric" />
-                  <ReviewList items={interview.scenario.interviewer_rubric} title="Interviewer rubric" />
-                </div>
-
-                <section className="grid gap-3 rounded-card border border-slate-200 bg-slate-50/90 p-4">
-                  <h3 className="text-sm font-semibold text-slate-950">Candidate-facing brief</h3>
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{interview.scenario.candidate_instructions}</p>
-                  <div className="grid gap-3 text-sm leading-6 text-slate-700 md:grid-cols-2">
-                    <p>
-                      <span className="font-medium text-slate-950">Bug:</span> {interview.scenario.bug_description}
-                    </p>
-                    <p>
-                      <span className="font-medium text-slate-950">Feature:</span> {interview.scenario.feature_request}
-                    </p>
-                  </div>
-                  {interview.scenario.logs_or_bug_report ? (
-                    <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-300">
-                      {interview.scenario.logs_or_bug_report}
-                    </pre>
-                  ) : null}
-                </section>
-
-                <section>
-                  <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                    Validation instructions
-                    <InfoTooltip content="Candidates see the validation guidance, but the platform owns the actual pass/fail runner and hidden reviewer context." label="Test validation command help" />
-                  </h3>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                    {interview.scenario.validation_instructions}
-                  </p>
-                </section>
-
-                <section className="grid gap-3 rounded-card border border-slate-200 bg-slate-50/90 p-4">
-                  <h3 className="text-sm font-semibold text-slate-950">Expected solution summary</h3>
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{interview.scenario.expected_solution_summary}</p>
-                </section>
-
-                {interview.scenario.project ? <ProjectFilesPreview project={interview.scenario.project} /> : null}
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <ScenarioFilesPreview files={interview.scenario.starter_files_json} title="Candidate-visible starter files" />
-                  <ScenarioFilesPreview files={interview.scenario.test_files_json} title="Candidate-visible tests" />
-                </div>
-              </section>
-            ) : (
+            {interview.scenario ? <ScenarioPreview scenario={interview.scenario} scenarioStatus={scenarioStatus} /> : (
               <EmptyState
-                description="Generate the scenario to review the task, hidden evaluation points, rubric, and project files."
+                action={
+                  <Button
+                    aria-busy={isGenerating}
+                    disabled={isGenerating}
+                    onClick={() => void handleGenerateScenario()}
+                    type="button"
+                  >
+                    {isGenerating ? "Generating..." : "Generate scenario"}
+                  </Button>
+                }
+                description="Generate the scenario to review the task, files, tests, and interviewer-only rubric."
                 title="Scenario not generated"
               />
             )}
