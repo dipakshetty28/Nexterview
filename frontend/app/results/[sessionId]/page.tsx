@@ -4,12 +4,12 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { AppShell } from "@/components/app/app-shell";
 import {
   EmptyState,
   ErrorState,
+  InfoTooltip,
   LoadingState,
   PageHeader,
   StatusBadge,
@@ -19,7 +19,7 @@ import {
 import { useAuth } from "@/components/auth/auth-provider";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { Button } from "@/components/ui/button";
-import { ApiError, getSessionResult, runSubmissionReview } from "@/lib/api";
+import { ApiError, getInterview, getSessionResult, runSubmissionReview } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type {
   AgentReview,
@@ -31,7 +31,7 @@ import type {
   TelemetryTimelineEvent,
 } from "@/lib/types";
 
-type ResultTab = "overview" | "agents" | "code" | "transcript" | "timeline" | "notes";
+type ResultTab = "overview" | "agents" | "code" | "tests" | "transcript" | "timeline";
 
 type TimelineGroup = {
   id: string;
@@ -46,10 +46,10 @@ type TimelineGroup = {
 const RESULT_TABS: Array<{ id: ResultTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "agents", label: "Agent Reviews" },
-  { id: "code", label: "Code Submission" },
+  { id: "code", label: "Code" },
+  { id: "tests", label: "Tests" },
   { id: "transcript", label: "AI Transcript" },
   { id: "timeline", label: "Timeline" },
-  { id: "notes", label: "Notes" },
 ];
 
 const SCORE_LABELS: Record<string, string> = {
@@ -140,6 +140,50 @@ function scoreLabel(item: ScoreBreakdownItem): string {
   return SCORE_LABELS[item.agent_type] ?? item.label.replace(" Agent", "");
 }
 
+function scoreQuality(score: number | null | undefined): string {
+  if (score === null || score === undefined) {
+    return "Pending";
+  }
+  if (score >= 85) {
+    return "Strong";
+  }
+  if (score >= 70) {
+    return "Solid";
+  }
+  if (score >= 55) {
+    return "Mixed";
+  }
+  return "Concern";
+}
+
+function conciseText(value: string | null | undefined, maxLength = 150): string {
+  const normalized = sanitizeDisplayText(value)
+    .replace(/[*_`#>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return "";
+  }
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1).trim()}...` : normalized;
+}
+
+function scoreReason(result: SessionResult, item: ScoreBreakdownItem): string {
+  const review = result.agent_reviews.find((candidate) => candidate.agent_type === item.agent_type);
+  return (
+    conciseText(review?.observed[0]) ||
+    conciseText(review?.evidence[0]) ||
+    conciseText(review?.explanation) ||
+    "Reviewer reasoning will appear when this dimension is complete."
+  );
+}
+
+function formatDuration(durationMs: number): string {
+  if (durationMs < 1000) {
+    return `${durationMs} ms`;
+  }
+  return `${(durationMs / 1000).toFixed(durationMs >= 10000 ? 0 : 1)} s`;
+}
+
 function SectionPanel({
   title,
   description,
@@ -152,7 +196,7 @@ function SectionPanel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
+    <section className="rounded-card border border-slate-200/80 bg-white/95 p-5 shadow-panel backdrop-blur">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
@@ -175,7 +219,7 @@ function RecommendationBadge({ recommendation }: { recommendation: string | null
 
 function MiniMetric({ label, value, description }: { label: string; value: string | number; description?: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-3">
+    <div className="rounded-lg border border-slate-200 bg-slate-50/85 p-3 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
       {description ? <p className="mt-1 text-xs leading-5 text-slate-600">{description}</p> : null}
@@ -236,9 +280,14 @@ function TextList({ title, items }: { title: string; items: string[] }) {
   return (
     <div>
       <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h4>
-      <ul className="mt-2 grid gap-1 text-sm leading-6 text-slate-700">
+      <ul className="mt-2 grid gap-2 text-sm leading-6 text-slate-700">
         {items.length ? (
-          items.map((item) => <li key={item}>{sanitizeDisplayText(item)}</li>)
+          items.map((item) => (
+            <li className="flex gap-2" key={item}>
+              <span aria-hidden="true" className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
+              <span>{sanitizeDisplayText(item)}</span>
+            </li>
+          ))
         ) : (
           <li className="text-slate-500">None recorded.</li>
         )}
@@ -254,7 +303,7 @@ function RiskFlagList({ flags }: { flags: string[] }) {
   return (
     <div className="flex flex-wrap gap-2">
       {flags.map((flag) => (
-        <span className="rounded-full border border-amber-900/70 bg-amber-950/30 px-3 py-1 text-xs text-amber-100" key={flag}>
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800" key={flag}>
           {sanitizeDisplayText(flag)}
         </span>
       ))}
@@ -296,42 +345,56 @@ function CodeFileBlock({ file }: { file: SubmittedCodeFile }) {
 }
 
 function ScoreBreakdown({ result }: { result: SessionResult }) {
-  const chartData = result.score_breakdown.map((item) => ({
-    name: scoreLabel(item),
-    score: item.score ?? 0,
-    weight: item.weight,
-  }));
   return (
     <SectionPanel
-      description="Weighted dimensions used by reviewer agents."
+      aside={
+        <InfoTooltip
+          content="Each dimension is backed by an independent reviewer. The overall score applies the configured evaluation weights."
+          label="How scoring works"
+        />
+      }
+      description="A decision-ready view of every weighted evaluation dimension and its evidence-based rationale."
       title="Score Breakdown"
     >
       {result.score_breakdown.length ? (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
-          <div className="h-80 min-w-0">
-            <ResponsiveContainer height="100%" width="100%">
-              <BarChart data={chartData} margin={{ bottom: 24, left: -16, right: 8, top: 8 }}>
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                <XAxis angle={-18} dataKey="name" height={62} interval={0} stroke="#64748b" textAnchor="end" tick={{ fontSize: 11 }} />
-                <YAxis domain={[0, 100]} stroke="#64748b" />
-                <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", color: "#0f172a", borderRadius: "12px" }} />
-                <Bar dataKey="score" fill="#2563eb" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="grid content-start gap-2">
-            {result.score_breakdown.map((item) => (
-              <div className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/90 p-3" key={item.agent_type}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {result.score_breakdown.map((item) => (
+            <article
+              className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50/80 p-4 shadow-sm"
+              key={item.agent_type}
+            >
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium text-slate-900">{scoreLabel(item)}</p>
-                  <p className="text-xs text-slate-500">Weight {item.weight}%</p>
+                  <p className="text-sm font-semibold text-slate-950">{scoreLabel(item)}</p>
+                  <p className="mt-1 text-xs text-slate-500">Weight {item.weight}%</p>
                 </div>
-                <span className={cn("rounded-full border px-2.5 py-1 text-sm font-semibold", scoreTone(item.score))}>
-                  {item.score ?? "--"}
-                </span>
+                <div className="text-right">
+                  <p className="text-2xl font-semibold tracking-tight text-slate-950">{item.score ?? "--"}</p>
+                  <span className={cn("mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", scoreTone(item.score))}>
+                    {scoreQuality(item.score)}
+                  </span>
+                </div>
               </div>
-            ))}
-          </div>
+              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className={cn(
+                    "h-full rounded-full",
+                    item.score === null
+                      ? "bg-slate-300"
+                      : item.score >= 80
+                        ? "bg-emerald-500"
+                        : item.score >= 65
+                          ? "bg-blue-500"
+                          : item.score >= 50
+                            ? "bg-amber-500"
+                            : "bg-rose-500",
+                  )}
+                  style={{ width: `${Math.max(0, Math.min(100, item.score ?? 0))}%` }}
+                />
+              </div>
+              <p className="mt-3 text-sm leading-5 text-slate-600">{scoreReason(result, item)}</p>
+            </article>
+          ))}
         </div>
       ) : (
         <EmptyState description="Run the agent review to populate score dimensions." title="Score breakdown not ready" />
@@ -340,153 +403,189 @@ function ScoreBreakdown({ result }: { result: SessionResult }) {
   );
 }
 
+function ExpectedObserved({ result }: { result: SessionResult }) {
+  const evidence = Array.from(new Set(result.agent_reviews.flatMap((review) => review.evidence))).slice(0, 10);
+
+  return (
+    <SectionPanel
+      aside={
+        <InfoTooltip
+          content="Observed behavior and evidence are assembled from stored submission data and independent agent reviews."
+          label="Evidence comparison help"
+        />
+      }
+      description="The core comparison behind the recommendation, separated from reviewer opinion."
+      title="Expected vs. Observed"
+    >
+      <div className="grid gap-3 lg:grid-cols-2">
+        <article className="rounded-lg border border-blue-200 bg-blue-50/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">What was expected</p>
+          <div className="mt-3">
+            <TextList items={result.expected_behavior} title="Target behavior" />
+          </div>
+          {result.expected_solution_summary ? (
+            <div className="mt-4 border-t border-blue-200 pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Intended approach</p>
+              <MarkdownBlock content={result.expected_solution_summary} emptyLabel="No expected solution summary was stored." />
+            </div>
+          ) : null}
+        </article>
+        <article className="rounded-lg border border-emerald-200 bg-emerald-50/65 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">What the candidate did</p>
+          <div className="mt-3">
+            <TextList items={result.candidate_observed} title="Observed behavior" />
+          </div>
+        </article>
+        <article className="rounded-lg border border-amber-200 bg-amber-50/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">What was missing</p>
+          <div className="mt-3">
+            <TextList items={result.candidate_missed} title="Gaps and weaknesses" />
+          </div>
+        </article>
+        <article className="rounded-lg border border-slate-200 bg-slate-50/90 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Supporting evidence</p>
+          <div className="mt-3">
+            <TextList items={evidence} title="Recorded signals" />
+          </div>
+        </article>
+      </div>
+      <details className="mt-4 rounded-lg border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">
+          Interviewer-only evaluation context
+        </summary>
+        <div className="grid gap-4 border-t border-slate-200 p-4 md:grid-cols-2">
+          <TextList items={result.hidden_evaluation_points} title="Hidden Evaluation Points" />
+          <TextList items={result.interviewer_rubric} title="Interviewer Rubric" />
+        </div>
+      </details>
+    </SectionPanel>
+  );
+}
+
+function AIUsageSummary({ result }: { result: SessionResult }) {
+  const blindCopySignals = result.risk_flags.filter((flag) => /blind|copy|paste|unvalidated|ai/i.test(flag));
+  return (
+    <SectionPanel
+      aside={
+        <InfoTooltip
+          content="AI usage is treated as an engineering signal. Productive context, iteration, and validation improve the assessment."
+          label="AI usage evaluation help"
+        />
+      }
+      title="AI Usage Report"
+    >
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div>
+          <MarkdownBlock content={result.ai_usage_analysis.summary} emptyLabel="No AI usage summary is available." />
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <TextList items={result.prompt_quality_summary.strengths} title="Strong Prompt Signals" />
+            <TextList items={result.prompt_quality_summary.risks} title="Weak Prompt Signals" />
+          </div>
+          {blindCopySignals.length ? (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <TextList items={blindCopySignals} title="Copy-Paste / Validation Risks" />
+            </div>
+          ) : null}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <MiniMetric label="Prompts" value={result.ai_usage_analysis.candidate_prompt_count} />
+          <MiniMetric label="AI Responses" value={result.ai_usage_analysis.assistant_response_count} />
+          <MiniMetric label="With File Context" value={result.ai_usage_analysis.prompts_with_file_context} />
+          <MiniMetric label="Validation Prompts" value={result.prompt_quality_summary.validation_prompt_count} />
+          <MiniMetric label="Vague Prompts" value={result.prompt_quality_summary.vague_prompt_count} />
+          <MiniMetric
+            label="Validated AI Output"
+            value={result.ai_usage_analysis.validated_suggestions ? "Evident" : "Not evident"}
+          />
+        </div>
+      </div>
+    </SectionPanel>
+  );
+}
+
 function ResultOverview({ result }: { result: SessionResult }) {
   return (
     <div className="grid gap-5">
-      <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Final Recommendation</p>
-          <div className="mt-3">
-            <RecommendationBadge recommendation={result.recommendation} />
-          </div>
-          <p className="mt-4 text-5xl font-semibold text-slate-950">{result.weighted_score ?? "--"}</p>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Overall weighted score from agent reviews. Pending submissions stay unscored until review is complete.
-          </p>
-        </section>
-
-        <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-sm font-medium text-blue-700">{result.role_title}</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">{result.scenario_title}</h2>
-              <p className="mt-2 text-sm text-slate-600">
-                {result.candidate_name} / {result.candidate_email}
-              </p>
-            </div>
-            <StatusBadge label={result.status} tone={statusTone(result.status)} />
-          </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <MiniMetric label="Submitted" value={formatDateTime(result.submitted_at)} />
-            <MiniMetric label="Changed Files" value={result.changed_files.length} />
-            <MiniMetric label="AI Prompts" value={result.ai_usage_analysis.candidate_prompt_count} />
-            <MiniMetric label="Test Runs" value={result.ai_usage_analysis.test_run_count} />
-          </div>
-        </section>
-      </div>
-
-      <SectionPanel
-        description="Stored validation attempts from the candidate workspace and final submission."
-        title="Test Validation"
-      >
-        {result.test_runs.length ? (
-          <div className="grid gap-3 md:grid-cols-3">
-            <MiniMetric label="Attempts" value={result.test_runs.length} />
-            <MiniMetric label="First Run" value={result.test_runs[0]?.status ?? "n/a"} />
-            <MiniMetric label="Final Run" value={result.test_runs[result.test_runs.length - 1]?.status ?? "n/a"} />
-            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/70 md:col-span-3">
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">When</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Command</th>
-                    <th className="px-3 py-2 font-medium">Pass/Fail</th>
-                    <th className="px-3 py-2 font-medium">Summary</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {result.test_runs.map((run) => (
-                    <tr key={run.id}>
-                      <td className="px-3 py-2 text-slate-600">{formatDateTime(run.created_at)}</td>
-                      <td className="px-3 py-2">
-                        <StatusBadge label={run.status} tone={run.status === "passed" ? "success" : "warning"} />
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs text-blue-700">{sanitizeDisplayText(run.command)}</td>
-                      <td className="px-3 py-2 text-slate-700">
-                        {run.passed_count}/{run.total_count} passed
-                      </td>
-                      <td className="max-w-sm px-3 py-2 text-slate-600">{sanitizeDisplayText(run.failure_summary) || "All checks passed."}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <EmptyState description="No validation attempts have been recorded for this session." title="No test runs yet" />
-        )}
-      </SectionPanel>
-
+      <ExpectedObserved result={result} />
       <ScoreBreakdown result={result} />
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        <SectionPanel title="AI Usage Summary">
-          <MarkdownBlock content={result.ai_usage_analysis.summary} emptyLabel="No AI usage summary is available." />
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <MiniMetric label="Responses" value={result.ai_usage_analysis.assistant_response_count} />
-            <MiniMetric label="Prompts With File Context" value={result.ai_usage_analysis.prompts_with_file_context} />
-            <MiniMetric
-              label="Validated Suggestions"
-              value={result.ai_usage_analysis.validated_suggestions ? "Yes" : "Not evident"}
-            />
-            <MiniMetric
-              label="Confidence Signals"
-              value={result.ai_usage_analysis.response_confidence_values.length || "None"}
-            />
-          </div>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <SectionPanel title="Candidate Explanation">
+          <MarkdownBlock content={result.notes} emptyLabel="No final explanation was submitted." />
         </SectionPanel>
-
-        <SectionPanel title="Prompt Quality">
-          <MarkdownBlock content={result.prompt_quality_summary.summary} emptyLabel="No prompt quality analysis is available." />
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <MiniMetric label="Vague Prompts" value={result.prompt_quality_summary.vague_prompt_count} />
-            <MiniMetric label="Validation Prompts" value={result.prompt_quality_summary.validation_prompt_count} />
-            <MiniMetric label="Average Length" value={Math.round(result.prompt_quality_summary.average_prompt_length)} />
-            <MiniMetric label="File Context" value={result.prompt_quality_summary.prompts_with_file_context} />
-          </div>
+        <SectionPanel title="Decision Risks">
+          <RiskFlagList flags={result.risk_flags} />
         </SectionPanel>
       </div>
-
-      <SectionPanel title="Risk Flags">
-        <RiskFlagList flags={result.risk_flags} />
-      </SectionPanel>
+      <AIUsageSummary result={result} />
     </div>
   );
 }
 
 function AgentReviewCard({ review }: { review: AgentReview }) {
   return (
-    <section className="grid gap-4 rounded-card border border-white/80 bg-white p-5 shadow-panel">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{review.agent_type.replace(/_/g, " ")}</p>
-          <h3 className="mt-1 text-base font-semibold text-slate-950">{review.agent_label}</h3>
-          <div className="mt-3">
+    <details className="group overflow-hidden rounded-card border border-slate-200/80 bg-white/95 shadow-panel" open={false}>
+      <summary className="cursor-pointer list-none p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {review.agent_type.replace(/_/g, " ")}
+              </p>
+              {review.confidence !== null && review.confidence !== undefined ? (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  {Math.round(review.confidence * 100)}% confidence
+                </span>
+              ) : null}
+            </div>
+            <h3 className="mt-1 text-lg font-semibold text-slate-950">{review.agent_label}</h3>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+              {conciseText(review.explanation, 220) || "No reviewer explanation was recorded."}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
             <RecommendationBadge recommendation={review.recommendation} />
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", scoreTone(review.score))}>
+              {review.score}
+            </span>
+            <span
+              aria-hidden="true"
+              className="text-lg text-slate-400 transition group-open:rotate-180"
+            >
+              v
+            </span>
           </div>
         </div>
-        <span className={cn("w-fit rounded-full border px-3 py-1 text-sm font-semibold", scoreTone(review.score))}>
-          Score {review.score}
-        </span>
+      </summary>
+      <div className="border-t border-slate-200 bg-slate-50/60 p-5">
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Review summary</p>
+          <MarkdownBlock content={review.explanation} emptyLabel="No reviewer explanation was recorded." />
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-4">
+            <TextList items={review.expected} title="Expected" />
+          </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+            <TextList items={review.observed} title="Observed" />
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <TextList items={review.evidence} title="Evidence" />
+          </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+            <TextList items={review.strengths} title="Strengths" />
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+            <TextList items={review.weaknesses} title="Weaknesses" />
+          </div>
+          <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-4">
+            <TextList items={review.risk_flags} title="Risk Flags" />
+          </div>
+        </div>
+        <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50/60 p-4">
+          <TextList items={review.follow_up_questions} title="Suggested Follow-Up Questions" />
+        </div>
       </div>
-      {review.review_source ? (
-        <p className="text-xs uppercase tracking-wide text-slate-500">
-          Source: {review.review_source.replace(/_/g, " ")}
-          {review.confidence !== null && review.confidence !== undefined ? ` / confidence ${Math.round(review.confidence * 100)}%` : ""}
-        </p>
-      ) : null}
-      <MarkdownBlock content={review.explanation} emptyLabel="No reviewer explanation was recorded." />
-      <div className="grid gap-4 md:grid-cols-2">
-        <TextList items={review.expected} title="Expected" />
-        <TextList items={review.observed} title="Observed" />
-        <TextList items={review.strengths} title="Strengths" />
-        <TextList items={review.weaknesses} title="Weaknesses" />
-        <TextList items={review.evidence} title="Evidence" />
-        <TextList items={review.risk_flags} title="Risk Flags" />
-        <TextList items={review.follow_up_questions} title="Follow-Up Questions" />
-      </div>
-    </section>
+    </details>
   );
 }
 
@@ -494,7 +593,17 @@ function AgentReviews({ result }: { result: SessionResult }) {
   return (
     <div className="grid gap-4">
       {result.agent_reviews.length ? (
-        result.agent_reviews.map((review) => <AgentReviewCard key={review.id} review={review} />)
+        <>
+          <div className="px-1">
+            <h2 className="text-xl font-semibold text-slate-950">Independent Agent Reviews</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Open any reviewer to inspect expected behavior, observed evidence, risks, and targeted follow-up questions.
+            </p>
+          </div>
+          <div className="grid gap-3">
+            {result.agent_reviews.map((review) => <AgentReviewCard key={review.id} review={review} />)}
+          </div>
+        </>
       ) : (
         <EmptyState description="The submission is saved, but agent review output is not ready yet." title="Review still running" />
       )}
@@ -505,6 +614,10 @@ function AgentReviews({ result }: { result: SessionResult }) {
 function CodeSubmission({ result }: { result: SessionResult }) {
   return (
     <div className="grid gap-5">
+      <SectionPanel title="Candidate Explanation">
+        <MarkdownBlock content={result.notes} emptyLabel="No final explanation was submitted." />
+      </SectionPanel>
+
       <SectionPanel
         aside={<span className="text-xs uppercase tracking-wide text-slate-500">{result.changed_files.length} files</span>}
         title="Changed Files"
@@ -551,6 +664,107 @@ function CodeSubmission({ result }: { result: SessionResult }) {
   );
 }
 
+function TestReport({ result }: { result: SessionResult }) {
+  const firstRun = result.test_runs[0];
+  const finalRun = result.test_runs[result.test_runs.length - 1];
+  const validationCommand = finalRun?.command ?? firstRun?.command ?? "";
+
+  return (
+    <div className="grid gap-5">
+      <SectionPanel
+        aside={
+          finalRun ? (
+            <StatusBadge label={finalRun.status} tone={finalRun.status === "passed" ? "success" : statusTone(finalRun.status)} />
+          ) : null
+        }
+        description="Stored validation attempts from the candidate workspace, shown in execution order."
+        title="Test Validation Summary"
+      >
+        {result.test_runs.length ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <MiniMetric label="Final Status" value={finalRun?.status ?? "Not run"} />
+              <MiniMetric label="First Run" value={firstRun?.status ?? "Not run"} />
+              <MiniMetric label="Attempts" value={result.test_runs.length} />
+              <MiniMetric
+                label="Final Pass Count"
+                value={finalRun ? `${finalRun.passed_count}/${finalRun.total_count}` : "--"}
+              />
+            </div>
+            {validationCommand ? (
+              <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-slate-100">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Validation command</p>
+                <code className="mt-2 block overflow-x-auto font-mono text-sm text-cyan-200">
+                  {sanitizeDisplayText(validationCommand)}
+                </code>
+              </div>
+            ) : null}
+            {finalRun?.failure_summary ? (
+              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Final failure summary</p>
+                <p className="mt-2 text-sm leading-6 text-rose-800">{sanitizeDisplayText(finalRun.failure_summary)}</p>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <EmptyState
+            description="No validation attempts were recorded for this candidate session."
+            embedded
+            title="No test runs"
+          />
+        )}
+      </SectionPanel>
+
+      {result.test_runs.length ? (
+        <section className="overflow-hidden rounded-card border border-slate-200/80 bg-white/95 shadow-panel">
+          <div className="border-b border-slate-200 px-5 py-4">
+            <h2 className="text-lg font-semibold text-slate-950">Execution History</h2>
+            <p className="mt-1 text-sm text-slate-600">Every stored test attempt, including duration and failure evidence.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Attempt</th>
+                  <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium">Pass / Fail</th>
+                  <th className="px-5 py-3 font-medium">Duration</th>
+                  <th className="px-5 py-3 font-medium">Run at</th>
+                  <th className="px-5 py-3 font-medium">Summary</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {result.test_runs.map((run, index) => (
+                  <tr className="transition hover:bg-sky-50/60" key={run.id}>
+                    <td className="px-5 py-4 font-semibold text-slate-900">#{index + 1}</td>
+                    <td className="px-5 py-4">
+                      <StatusBadge label={run.status} tone={run.status === "passed" ? "success" : statusTone(run.status)} />
+                    </td>
+                    <td className="px-5 py-4 text-slate-700">
+                      {run.passed_count} passed / {run.failed_count} failed
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">{formatDuration(run.duration_ms)}</td>
+                    <td className="px-5 py-4 text-slate-600">{formatDateTime(run.created_at)}</td>
+                    <td className="max-w-md px-5 py-4 text-slate-600">
+                      {sanitizeDisplayText(run.failure_summary) || "All recorded checks passed."}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      <SectionPanel title="Submitted Test Output">
+        <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-300">
+          {sanitizeDisplayText(result.test_output) || "No submitted test output was stored."}
+        </pre>
+      </SectionPanel>
+    </div>
+  );
+}
+
 function ChatMessage({ message }: { message: AITranscriptMessage }) {
   const currentFile = typeof message.metadata.current_file_path === "string" ? message.metadata.current_file_path : null;
   const confidence = typeof message.metadata.confidence === "string" ? message.metadata.confidence : null;
@@ -558,8 +772,8 @@ function ChatMessage({ message }: { message: AITranscriptMessage }) {
   return (
     <article
       className={cn(
-        "rounded-md border p-4",
-        isUser ? "border-cyan-900/70 bg-cyan-950/20" : "border-slate-800 bg-slate-950",
+        "rounded-lg border p-4 shadow-sm",
+        isUser ? "border-blue-200 bg-blue-50/70" : "border-slate-200 bg-white",
       )}
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -567,16 +781,18 @@ function ChatMessage({ message }: { message: AITranscriptMessage }) {
           <span
             className={cn(
               "rounded-full border px-3 py-1 text-xs font-medium",
-              isUser ? "border-cyan-800 text-cyan-100" : "border-slate-700 text-slate-300",
+              isUser ? "border-blue-200 bg-white text-blue-700" : "border-slate-200 bg-slate-50 text-slate-700",
             )}
           >
             {isUser ? "Candidate" : "AI Copilot"}
           </span>
           <span className="text-xs text-slate-500">{formatDateTime(message.created_at)}</span>
         </div>
-        <span className="text-xs text-slate-500">{confidence ? `Confidence: ${confidence}` : message.ai_mode}</span>
+        <span className="text-xs text-slate-500">
+          {confidence ? `Confidence: ${confidence}` : message.ai_mode.replace(/_/g, " ")}
+        </span>
       </div>
-      {currentFile ? <p className="mt-3 text-xs text-cyan-300">File context: {sanitizeDisplayText(currentFile)}</p> : null}
+      {currentFile ? <p className="mt-3 text-xs font-medium text-blue-700">File context: {sanitizeDisplayText(currentFile)}</p> : null}
       <div className="mt-3">
         <MarkdownBlock content={message.content} emptyLabel="No message content recorded." />
       </div>
@@ -586,27 +802,27 @@ function ChatMessage({ message }: { message: AITranscriptMessage }) {
 
 function TranscriptViewer({ result }: { result: SessionResult }) {
   return (
-    <SectionPanel
-      aside={<span className="text-xs uppercase tracking-wide text-slate-500">{result.ai_chat_transcript.length} messages</span>}
-      description="Candidate prompts and assistant responses from the interview workspace."
-      title="AI Transcript"
-    >
-      <div className="grid gap-3">
-        {result.ai_chat_transcript.length ? (
-          result.ai_chat_transcript.map((message) => <ChatMessage key={message.id} message={message} />)
-        ) : (
-          <EmptyState
-            description="The candidate did not use the AI copilot during this interview."
-            title="No AI messages"
-          />
-        )}
-      </div>
-    </SectionPanel>
+    <div className="grid gap-5">
+      <AIUsageSummary result={result} />
+      <SectionPanel
+        aside={<span className="text-xs uppercase tracking-wide text-slate-500">{result.ai_chat_transcript.length} messages</span>}
+        description="Candidate prompts and assistant responses from the interview workspace."
+        title="AI Transcript"
+      >
+        <div className="grid gap-3">
+          {result.ai_chat_transcript.length ? (
+            result.ai_chat_transcript.map((message) => <ChatMessage key={message.id} message={message} />)
+          ) : (
+            <EmptyState
+              description="The candidate did not use the AI copilot during this interview."
+              embedded
+              title="No AI messages"
+            />
+          )}
+        </div>
+      </SectionPanel>
+    </div>
   );
-}
-
-function groupableEventType(eventType: string): boolean {
-  return ["code_edit", "file_edited", "file_saved", "note_updated"].includes(eventType);
 }
 
 function eventLabel(eventType: string): string {
@@ -614,6 +830,31 @@ function eventLabel(eventType: string): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function eventGroup(eventType: string): { key: string; label: string } {
+  if (["code_edit", "file_edited", "file_saved", "file_opened"].includes(eventType)) {
+    return { key: "code_activity", label: "Code edited" };
+  }
+  if (["ai_prompt_sent", "ai_response_received"].includes(eventType)) {
+    return { key: "ai_activity", label: "AI prompts sent" };
+  }
+  if (["test_run_started", "test_run", "test_run_completed", "test_run_failed", "final_tests_passed", "final_tests_failed"].includes(eventType)) {
+    return { key: "test_activity", label: "Tests run" };
+  }
+  if (eventType === "note_updated") {
+    return { key: "note_activity", label: "Final explanation updated" };
+  }
+  if (eventType === "session_started") {
+    return { key: "session_started", label: "Session started" };
+  }
+  if (eventType === "task_viewed") {
+    return { key: "task_viewed", label: "Task viewed" };
+  }
+  if (["submission_created", "final_submit"].includes(eventType)) {
+    return { key: "submission_created", label: "Solution submitted" };
+  }
+  return { key: eventType, label: eventLabel(eventType) };
 }
 
 function telemetryDetails(event: TelemetryTimelineEvent): string[] {
@@ -672,57 +913,68 @@ function telemetryDetails(event: TelemetryTimelineEvent): string[] {
 }
 
 function timelineGroups(events: TelemetryTimelineEvent[]): TimelineGroup[] {
-  const groups: TimelineGroup[] = [];
+  const groups = new Map<string, TimelineGroup>();
   for (const event of events) {
-    const path =
-      typeof event.payload.path === "string"
-        ? event.payload.path
-        : typeof event.payload.current_file_path === "string"
-          ? event.payload.current_file_path
-          : "";
-    const groupingKey = groupableEventType(event.event_type) ? `${event.event_type}:${path}` : event.id;
-    const previous = groups[groups.length - 1];
-    if (previous && previous.id === groupingKey && groupableEventType(event.event_type)) {
-      previous.count += 1;
-      previous.lastAt = event.created_at;
-      previous.details = Array.from(new Set([...previous.details, ...telemetryDetails(event)])).slice(0, 5);
+    const category = eventGroup(event.event_type);
+    const existing = groups.get(category.key);
+    if (existing) {
+      existing.count += 1;
+      existing.lastAt = event.created_at;
+      existing.details = Array.from(new Set([...existing.details, ...telemetryDetails(event)])).slice(0, 5);
       continue;
     }
-    groups.push({
-      id: groupingKey,
+    groups.set(category.key, {
+      id: category.key,
       eventType: event.event_type,
-      label: eventLabel(event.event_type),
+      label: category.label,
       count: 1,
       firstAt: event.created_at,
       lastAt: event.created_at,
       details: telemetryDetails(event),
     });
   }
-  return groups;
+  return Array.from(groups.values()).sort(
+    (left, right) => new Date(left.firstAt).getTime() - new Date(right.firstAt).getTime(),
+  );
 }
 
 function Timeline({ result }: { result: SessionResult }) {
   const groups = useMemo(() => timelineGroups(result.telemetry_timeline), [result.telemetry_timeline]);
+  const activityCounts = useMemo(
+    () => ({
+      edits: result.telemetry_timeline.filter((event) => eventGroup(event.event_type).key === "code_activity").length,
+      prompts: result.telemetry_timeline.filter((event) => event.event_type === "ai_prompt_sent").length,
+      tests: result.telemetry_timeline.filter((event) => eventGroup(event.event_type).key === "test_activity").length,
+      notes: result.telemetry_timeline.filter((event) => event.event_type === "note_updated").length,
+    }),
+    [result.telemetry_timeline],
+  );
   return (
     <SectionPanel
       aside={<span className="text-xs uppercase tracking-wide text-slate-500">{result.telemetry_timeline.length} events</span>}
-      description="Repeated edit and note events are grouped so reviewers can see meaningful activity without raw event noise."
-      title="Telemetry Timeline"
+      description="Repeated activity is summarized into meaningful milestones instead of exposing a noisy event dump."
+      title="Session Timeline"
     >
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <MiniMetric label="Code Edits" value={activityCounts.edits} />
+        <MiniMetric label="AI Prompts" value={activityCounts.prompts} />
+        <MiniMetric label="Test Runs" value={activityCounts.tests} />
+        <MiniMetric label="Explanation Updates" value={activityCounts.notes} />
+      </div>
       <div className="grid gap-4">
         {groups.length ? (
           groups.map((group) => (
-            <article className="grid gap-2 border-l border-slate-700 pl-4" key={`${group.id}-${group.firstAt}`}>
+            <article className="relative grid gap-2 border-l-2 border-slate-200 pb-2 pl-5" key={`${group.id}-${group.firstAt}`}>
+              <span className="absolute -left-[7px] top-1 h-3 w-3 rounded-full border-2 border-white bg-blue-500 shadow-sm" />
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-sm font-medium text-slate-100">
-                  {group.label}
-                  {group.count > 1 ? <span className="ml-2 text-xs text-slate-500">x{group.count}</span> : null}
+                <h3 className="text-sm font-semibold text-slate-900">
+                  {group.count > 1 ? `${group.label} ${group.count} times` : group.label}
                 </h3>
                 <span className="text-xs text-slate-500">
                   {group.count > 1 ? `${formatDateTime(group.firstAt)} to ${formatDateTime(group.lastAt)}` : formatDateTime(group.firstAt)}
                 </span>
               </div>
-              <ul className="grid gap-1 rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-400">
+              <ul className="grid gap-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
                 {group.details.map((line) => (
                   <li key={line}>{line}</li>
                 ))}
@@ -737,57 +989,85 @@ function Timeline({ result }: { result: SessionResult }) {
   );
 }
 
-function NotesTab({ result }: { result: SessionResult }) {
+function ReportHeader({ result, stack }: { result: SessionResult; stack: string[] }) {
+  const initials = result.candidate_name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+
   return (
-    <div className="grid gap-5">
-      <SectionPanel title="Candidate Explanation">
-        <MarkdownBlock content={result.notes} emptyLabel="No candidate explanation was submitted." />
-      </SectionPanel>
-      <SectionPanel title="Submitted Test Output">
-        <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
-          {sanitizeDisplayText(result.test_output) || "No submitted test output."}
-        </pre>
-      </SectionPanel>
-      <SectionPanel title="Scenario Signals">
-        <div className="grid gap-4 lg:grid-cols-2">
+    <section className="relative overflow-hidden rounded-card border border-slate-200/80 bg-white/95 shadow-elevated">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-600 via-sky-400 to-emerald-400" />
+      <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_220px] lg:p-6">
+        <div className="min-w-0">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-sm font-bold text-blue-700 shadow-sm">
+              {initials || "C"}
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge label={result.status} tone={statusTone(result.status)} />
+                <RecommendationBadge recommendation={result.recommendation} />
+              </div>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{result.candidate_name}</h2>
+              <p className="mt-1 text-sm text-slate-600">{result.candidate_email}</p>
+              <h3 className="mt-4 text-lg font-semibold text-slate-900">{result.scenario_title}</h3>
+              <p className="mt-1 text-sm text-slate-600">{result.role_title}</p>
+              {stack.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {stack.map((item) => (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700" key={item}>
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="mt-6 grid gap-3 border-t border-slate-200 pt-5 sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted</p>
+              <p className="mt-1 text-sm font-medium text-slate-800">{formatDateTime(result.submitted_at)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Review status</p>
+              <p className="mt-1 text-sm font-medium text-slate-800">
+                {result.status.replace(/_/g, " ")}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence set</p>
+              <p className="mt-1 text-sm font-medium text-slate-800">
+                {result.agent_reviews.length} agents / {result.test_runs.length} test runs
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="flex min-h-44 flex-col justify-between rounded-lg border border-slate-200 bg-slate-50/90 p-5 shadow-inner">
           <div>
-            <h3 className="text-sm font-semibold text-slate-100">Bug Report</h3>
-            <MarkdownBlock content={result.bug_description} emptyLabel="No bug report was stored." />
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Overall score</p>
+              <InfoTooltip
+                content="Weighted from the completed score dimensions shown in the Overview tab."
+                label="Overall score help"
+              />
+            </div>
+            <p className="mt-3 text-5xl font-semibold tracking-tight text-slate-950">
+              {result.weighted_score ?? "--"}
+              <span className="ml-1 text-lg font-medium text-slate-400">/100</span>
+            </p>
           </div>
-          <div>
-            <h3 className="text-sm font-semibold text-slate-100">Feature Request</h3>
-            <MarkdownBlock content={result.feature_request} emptyLabel="No feature request was stored." />
-          </div>
-          <div className="lg:col-span-2">
-            <h3 className="text-sm font-semibold text-slate-100">Visible Validation Guidance</h3>
-            <MarkdownBlock content={result.validation_instructions} emptyLabel="No validation guidance was stored." />
-          </div>
-        </div>
-      </SectionPanel>
-      <SectionPanel
-        description="Interviewer-only review context used to compare the candidate submission against the intended solution."
-        title="Expected Outcome"
-      >
-        <div className="grid gap-4 lg:grid-cols-2">
-          <TextList items={result.expected_behavior} title="Expected Behavior" />
-          <TextList items={result.hidden_evaluation_points} title="Hidden Evaluation Points" />
-          <TextList items={result.interviewer_rubric} title="Interviewer Rubric" />
-          <TextList items={result.candidate_observed} title="What Candidate Did" />
-          <TextList items={result.candidate_missed} title="What Candidate Missed" />
-          <TextList items={result.suggested_follow_up_questions} title="Suggested Follow-Up" />
-          <div className="lg:col-span-2">
-            <h3 className="text-sm font-semibold text-slate-100">Expected Solution Summary</h3>
-            <MarkdownBlock content={result.expected_solution_summary} emptyLabel="No expected solution summary was stored." />
+          <div className="mt-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Final recommendation</p>
+            <div className="mt-2">
+              <RecommendationBadge recommendation={result.recommendation} />
+            </div>
           </div>
         </div>
-      </SectionPanel>
-      <SectionPanel title="Prompt Quality Details">
-        <div className="grid gap-4 md:grid-cols-2">
-          <TextList items={result.prompt_quality_summary.strengths} title="Prompt Strengths" />
-          <TextList items={result.prompt_quality_summary.risks} title="Prompt Risks" />
-        </div>
-      </SectionPanel>
-    </div>
+      </div>
+    </section>
   );
 }
 
@@ -799,14 +1079,14 @@ function ResultTabs({
   onTabChange: (tab: ResultTab) => void;
 }) {
   return (
-    <div className="overflow-x-auto rounded-card border border-white/80 bg-white p-1 shadow-panel">
+    <div className="overflow-x-auto rounded-card border border-slate-200/80 bg-white/95 p-1.5 shadow-panel">
       <div className="flex min-w-max gap-1">
         {RESULT_TABS.map((tab) => (
           <button
             className={cn(
               "h-10 rounded-lg px-4 text-sm font-semibold outline-none transition",
               activeTab === tab.id
-                ? "bg-blue-600 text-white shadow-sm"
+                ? "bg-slate-950 text-white shadow-sm"
                 : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
             )}
             key={tab.id}
@@ -828,14 +1108,14 @@ function ResultTabContent({ activeTab, result }: { activeTab: ResultTab; result:
   if (activeTab === "code") {
     return <CodeSubmission result={result} />;
   }
+  if (activeTab === "tests") {
+    return <TestReport result={result} />;
+  }
   if (activeTab === "transcript") {
     return <TranscriptViewer result={result} />;
   }
   if (activeTab === "timeline") {
     return <Timeline result={result} />;
-  }
-  if (activeTab === "notes") {
-    return <NotesTab result={result} />;
   }
   return <ResultOverview result={result} />;
 }
@@ -844,6 +1124,7 @@ function ResultContent() {
   const params = useParams<{ sessionId: string }>();
   const { token, user } = useAuth();
   const [result, setResult] = useState<SessionResult | null>(null);
+  const [interviewStack, setInterviewStack] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<ResultTab>("overview");
   const [isLoading, setIsLoading] = useState(true);
   const [isReviewing, setIsReviewing] = useState(false);
@@ -861,6 +1142,12 @@ function ResultContent() {
     try {
       const loadedResult = await getSessionResult(token, params.sessionId);
       setResult(loadedResult);
+      try {
+        const interview = await getInterview(token, loadedResult.interview_id);
+        setInterviewStack(interview.stack);
+      } catch {
+        setInterviewStack([]);
+      }
     } catch (requestError: unknown) {
       if (requestError instanceof ApiError && requestError.status === 404) {
         setError("Result is not ready yet. Ask the candidate to submit or run the review once a submission exists.");
@@ -913,19 +1200,23 @@ function ResultContent() {
       <PageHeader
         actions={
           result ? (
-            <Button
-              aria-busy={isReviewing}
-              disabled={isReviewing || result.agent_reviews.length > 0}
-              onClick={() => void handleRunReview()}
-              type="button"
-            >
-              {isReviewing ? "Reviewing..." : result.agent_reviews.length > 0 ? "Review complete" : "Run agent review"}
-            </Button>
+            result.agent_reviews.length > 0 ? (
+              <StatusBadge label="Review complete" tone="success" />
+            ) : (
+              <Button
+                aria-busy={isReviewing}
+                disabled={isReviewing}
+                onClick={() => void handleRunReview()}
+                type="button"
+              >
+                {isReviewing ? "Reviewing..." : "Run agent review"}
+              </Button>
+            )
           ) : null
         }
-        description="Review candidate code, agent analysis, score breakdown, AI usage, and summarized telemetry."
-        eyebrow="Submission review"
-        title="Submission result"
+        description="A structured, evidence-backed assessment of engineering judgment, execution, validation, and AI collaboration."
+        eyebrow="Engineering evaluation"
+        title="Candidate evaluation report"
       />
 
       <main className="mt-6 grid max-w-7xl gap-5">
@@ -952,25 +1243,7 @@ function ResultContent() {
 
         {result ? (
           <section className="grid gap-5">
-            <section className="rounded-card border border-white/80 bg-white p-5 shadow-panel">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge label={result.status} tone={statusTone(result.status)} />
-                    <RecommendationBadge recommendation={result.recommendation} />
-                  </div>
-                  <h2 className="mt-4 text-2xl font-semibold text-slate-950">{result.scenario_title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    {result.role_title} / {result.candidate_name} / {result.candidate_email}
-                  </p>
-                </div>
-                <div className={cn("w-fit rounded-md border px-4 py-3", scoreTone(result.weighted_score))}>
-                  <p className="text-xs uppercase tracking-wide opacity-80">Overall Score</p>
-                  <p className="mt-1 text-2xl font-semibold">{result.weighted_score ?? "--"}</p>
-                </div>
-              </div>
-            </section>
-
+            <ReportHeader result={result} stack={interviewStack} />
             <ResultTabs activeTab={activeTab} onTabChange={setActiveTab} />
             <ResultTabContent activeTab={activeTab} result={result} />
           </section>
