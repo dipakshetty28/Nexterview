@@ -15,6 +15,7 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
 
+import { CoachMark } from "@/components/app/coach-mark";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { Button } from "@/components/ui/button";
@@ -1628,6 +1629,14 @@ function CandidateSessionContent() {
                       panelId="task"
                       title="Task"
                     />
+                    <CoachMark
+                      arrow="top"
+                      className="mx-3 mt-3 shrink-0"
+                      description="Requirements and logs are candidate-visible. Hidden rubric stays private."
+                      id="candidate-task-visibility"
+                      title="Task context"
+                      tone="dark"
+                    />
                     <TaskPanel session={session} />
                   </IdePanel>
                 )}
@@ -1778,6 +1787,14 @@ function CandidateSessionContent() {
                                 panelId="output"
                                 title="Tests & Summary"
                               />
+                              <CoachMark
+                                arrow="top"
+                                className="mx-3 mt-3 shrink-0"
+                                description="Run tests to verify your fix before submitting."
+                                id="candidate-test-validation"
+                                title="Validate before submission"
+                                tone="dark"
+                              />
                               <OutputPanel
                                 isRunningTests={isRunningTests}
                                 isSavingNotes={isSavingNotes}
@@ -1820,6 +1837,14 @@ function CandidateSessionContent() {
                       title="Copilot"
                     />
                     <div className="flex min-h-0 flex-1 flex-col">
+                      <CoachMark
+                        arrow="top"
+                        className="mx-3 mt-3 shrink-0"
+                        description="AI assistance is allowed. We evaluate how well candidates validate it."
+                        id="candidate-ai-copilot"
+                        title="AI is part of the assessment"
+                        tone="dark"
+                      />
                       <div className="border-b border-slate-700 bg-blue-950/25 px-4 py-3">
                         <p className="text-xs leading-5 text-blue-100">
                           Task context, current code, and latest test output are included automatically.

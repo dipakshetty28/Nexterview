@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/app/app-shell";
+import { CoachMark } from "@/components/app/coach-mark";
 import {
   ActionButton,
   EmptyState,
@@ -150,6 +151,21 @@ function DashboardContent() {
             icon="AVG"
             label="Average score"
             value={metrics.averageScore ?? "--"}
+          />
+        </section>
+
+        <section aria-label="Dashboard guidance" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <CoachMark
+            arrow="top"
+            description="Scenarios are generated from role, stack, difficulty, and interview type."
+            id="dashboard-scenario-generation"
+            title="Role-matched scenarios"
+          />
+          <CoachMark
+            arrow="top"
+            description="Submitted sessions are reviewed by multiple specialized agents."
+            id="dashboard-ready-for-review"
+            title="Ready for review"
           />
         </section>
 

@@ -74,6 +74,17 @@ function BrandMark() {
   );
 }
 
+function PreviewSignal({ label, className }: { label: string; className: string }) {
+  return (
+    <span
+      className={`pointer-events-none absolute z-20 hidden items-center gap-2 rounded-full border border-blue-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-panel backdrop-blur xl:flex ${className}`}
+    >
+      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+      {label}
+    </span>
+  );
+}
+
 function ProductPreview() {
   return (
     <section
@@ -82,6 +93,17 @@ function ProductPreview() {
       id="sample-result"
     >
       <div className="absolute inset-x-20 bottom-8 top-20 rounded-[2rem] bg-blue-100/60 blur-3xl" />
+      <div className="relative mb-4 flex flex-wrap justify-center gap-2 xl:hidden" aria-label="Product preview signals">
+        {["Real tests", "AI usage analysis", "Multi-agent review", "Prompt quality signal"].map((label) => (
+          <span className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm" key={label}>
+            {label}
+          </span>
+        ))}
+      </div>
+      <PreviewSignal className="-top-1 right-5" label="AI usage analysis" />
+      <PreviewSignal className="right-[28%] top-20" label="Prompt quality signal" />
+      <PreviewSignal className="-bottom-1 right-5" label="Multi-agent review" />
+      <PreviewSignal className="-bottom-1 left-[38%]" label="Real tests" />
       <div className="relative grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(290px,0.65fr)] lg:items-start">
         <div className="min-w-0 max-w-full overflow-hidden rounded-card border border-slate-800 bg-slate-950 shadow-elevated">
           <div className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900/90 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">

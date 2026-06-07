@@ -6,6 +6,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import ReactMarkdown, { type Components } from "react-markdown";
 
 import { AppShell } from "@/components/app/app-shell";
+import { CoachMark } from "@/components/app/coach-mark";
 import {
   EmptyState,
   ErrorState,
@@ -408,15 +409,16 @@ function ExpectedObserved({ result }: { result: SessionResult }) {
 
   return (
     <SectionPanel
-      aside={
-        <InfoTooltip
-          content="Observed behavior and evidence are assembled from stored submission data and independent agent reviews."
-          label="Evidence comparison help"
-        />
-      }
       description="The core comparison behind the recommendation, separated from reviewer opinion."
       title="Expected vs. Observed"
     >
+      <CoachMark
+        arrow="top"
+        className="mb-4"
+        description="Use this section to understand why the candidate received the score."
+        id="results-expected-observed"
+        title="Follow the evidence"
+      />
       <div className="grid gap-3 lg:grid-cols-2">
         <article className="rounded-lg border border-blue-200 bg-blue-50/70 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">What was expected</p>
@@ -466,14 +468,15 @@ function AIUsageSummary({ result }: { result: SessionResult }) {
   const blindCopySignals = result.risk_flags.filter((flag) => /blind|copy|paste|unvalidated|ai/i.test(flag));
   return (
     <SectionPanel
-      aside={
-        <InfoTooltip
-          content="AI usage is treated as an engineering signal. Productive context, iteration, and validation improve the assessment."
-          label="AI usage evaluation help"
-        />
-      }
       title="AI Usage Report"
     >
+      <CoachMark
+        arrow="top"
+        className="mb-4"
+        description="This score reflects prompt specificity, validation behavior, and independence."
+        id="results-ai-usage"
+        title="AI usage is a signal"
+      />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div>
           <MarkdownBlock content={result.ai_usage_analysis.summary} emptyLabel="No AI usage summary is available." />
