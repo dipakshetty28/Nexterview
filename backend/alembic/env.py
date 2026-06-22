@@ -12,6 +12,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.core.config import settings
 from app.db.base import Base
 from app.models import (
+    AIMessage,
     Interview,
     InterviewSession,
     InviteToken,
@@ -31,7 +32,18 @@ if config.config_file_name is not None:
 config.set_main_option("sqlalchemy.url", settings.database_url)
 target_metadata = Base.metadata
 
-_ = (Interview, InterviewSession, InviteToken, Organization, OrganizationMember, Scenario, Submission, TelemetryEvent, User)
+_ = (
+    AIMessage,
+    Interview,
+    InterviewSession,
+    InviteToken,
+    Organization,
+    OrganizationMember,
+    Scenario,
+    Submission,
+    TelemetryEvent,
+    User,
+)
 
 
 def run_migrations_offline() -> None:

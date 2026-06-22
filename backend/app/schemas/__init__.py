@@ -1,5 +1,8 @@
 from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, TokenPayload, UserRead
 from app.schemas.invite import (
+    AICopilotRequest,
+    AICopilotResponse,
+    AIMessageRead,
     InterviewSessionRead,
     InviteCreateRequest,
     InviteTokenRead,
@@ -16,6 +19,9 @@ from app.schemas.scenario import GeneratedScenario, ScenarioRead
 
 __all__ = [
     "AuthResponse",
+    "AICopilotRequest",
+    "AICopilotResponse",
+    "AIMessageRead",
     "GeneratedScenario",
     "InterviewCreateRequest",
     "InterviewRead",

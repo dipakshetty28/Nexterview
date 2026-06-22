@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.interview import InterviewSessionStatus, TelemetryEventType
+from app.models.interview import AIMessageRole, InterviewSessionStatus, TelemetryEventType
 
 
 class InviteCreateRequest(BaseModel):
@@ -83,6 +83,20 @@ class SubmissionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AIMessageRead(BaseModel):
+    id: UUID
+    session_id: UUID
+    candidate_id: UUID
+    role: AIMessageRole
+    content: str
+    code_snapshot: str | None
+    ai_mode: str
+    ai_model: str | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class InterviewSessionRead(BaseModel):
     id: UUID
     interview_id: UUID
@@ -99,6 +113,7 @@ class InterviewSessionRead(BaseModel):
     interview: CandidateSessionInterviewRead
     scenario: CandidateScenarioRead
     submission: SubmissionRead | None
+    ai_messages: list[AIMessageRead]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -139,3 +154,13 @@ class SubmissionCreate(BaseModel):
     code: str = Field(min_length=1)
     notes: str = Field(default="", max_length=10000)
     test_output: str | None = Field(default=None, max_length=20000)
+
+
+class AICopilotRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=6000)
+    code: str = Field(default="", max_length=200000)
+
+
+class AICopilotResponse(BaseModel):
+    user_message: AIMessageRead
+    assistant_message: AIMessageRead

@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import require_roles
 from app.db.session import get_db
 from app.models.interview import (
+    AIMessage,
+    AIMessageRole,
     Interview,
     InterviewSession,
     InterviewSessionStatus,
@@ -22,6 +24,9 @@ from app.models.interview import (
 )
 from app.models.user import User, UserRole
 from app.schemas.invite import (
+    AICopilotRequest,
+    AICopilotResponse,
+    AIMessageRead,
     CandidateScenarioRead,
     CandidateSessionInterviewRead,
     InterviewSessionRead,
@@ -35,9 +40,14 @@ from app.schemas.invite import (
     TestRunRequest,
     TestRunResult,
 )
+from app.services.copilot import CandidateCopilot
 from app.services.invites import hash_invite_token
 
 router = APIRouter(prefix="/api", tags=["candidate"])
+
+
+def get_candidate_copilot() -> CandidateCopilot:
+    return CandidateCopilot()
 
 
 def _now_utc() -> datetime:
@@ -106,6 +116,10 @@ def _session_response(session: InterviewSession) -> InterviewSessionRead:
         interview=CandidateSessionInterviewRead.model_validate(interview),
         scenario=CandidateScenarioRead.model_validate(interview.scenario),
         submission=SubmissionRead.model_validate(session.submission) if session.submission else None,
+        ai_messages=[
+            AIMessageRead.model_validate(message)
+            for message in sorted(session.ai_messages, key=lambda message: message.created_at)
+        ],
     )
 
 
@@ -123,6 +137,7 @@ def _get_candidate_session_for_user(db: Session, *, session_id: UUID, current_us
         .options(
             selectinload(InterviewSession.interview).selectinload(Interview.scenario),
             selectinload(InterviewSession.submission),
+            selectinload(InterviewSession.ai_messages),
         )
         .where(
             InterviewSession.id == session_id,
@@ -436,3 +451,71 @@ def submit_session_solution(
 
     db.refresh(submission)
     return SubmissionRead.model_validate(submission)
+
+
+@router.post("/sessions/{session_id}/ai", response_model=AICopilotResponse, status_code=status.HTTP_201_CREATED)
+def ask_candidate_copilot(
+    session_id: UUID,
+    payload: AICopilotRequest,
+    current_user: Annotated[User, Depends(require_roles(UserRole.CANDIDATE))],
+    db: Annotated[Session, Depends(get_db)],
+    copilot: Annotated[CandidateCopilot, Depends(get_candidate_copilot)],
+) -> AICopilotResponse:
+    session = _get_candidate_session_for_user(db, session_id=session_id, current_user=current_user)
+    previous_messages = list(
+        db.execute(
+            select(AIMessage)
+            .where(AIMessage.session_id == session.id)
+            .order_by(AIMessage.created_at.asc())
+        ).scalars()
+    )
+    code_snapshot = payload.code or session.latest_code or session.interview.scenario.starter_code
+    ai_mode = session.interview.allowed_ai_mode
+
+    user_message = AIMessage(
+        organization_id=session.organization_id,
+        session_id=session.id,
+        candidate_id=session.candidate_id,
+        role=AIMessageRole.USER,
+        content=payload.question,
+        code_snapshot=code_snapshot,
+        ai_mode=ai_mode,
+        ai_model=None,
+        message_metadata={},
+    )
+    db.add(user_message)
+
+    result = copilot.generate_reply(
+        session=session,
+        question=payload.question,
+        code=code_snapshot,
+        previous_messages=previous_messages,
+    )
+    assistant_message = AIMessage(
+        organization_id=session.organization_id,
+        session_id=session.id,
+        candidate_id=session.candidate_id,
+        role=AIMessageRole.ASSISTANT,
+        content=result.content,
+        code_snapshot=None,
+        ai_mode=ai_mode,
+        ai_model=result.model,
+        message_metadata={"source": result.source},
+    )
+    db.add(assistant_message)
+
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save AI copilot exchange.",
+        ) from exc
+
+    db.refresh(user_message)
+    db.refresh(assistant_message)
+    return AICopilotResponse(
+        user_message=AIMessageRead.model_validate(user_message),
+        assistant_message=AIMessageRead.model_validate(assistant_message),
+    )
