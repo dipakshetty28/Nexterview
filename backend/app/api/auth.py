@@ -60,6 +60,9 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists.")
 
     try:
+        if not payload.email or not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            raise ValueError("Invalid email format.")
+
         user = User(
             email=email,
             full_name=payload.full_name.strip(),
@@ -78,7 +81,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Registration conflicts with existing data.")
     except ValueError as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+                            if str(exc) != "Invalid email format." else "Invalid input: ensure all fields are provided and formatted correctly.")
 
     db.refresh(user)
     user = db.execute(
