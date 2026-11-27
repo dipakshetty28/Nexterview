@@ -78,7 +78,13 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Registration conflicts with existing data.")
     except ValueError as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        detail_message = str(exc)
+        if "invalid email" in detail_message:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The email provided is not valid.")
+        elif "weak password" in detail_message:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password must include at least one letter and one number, and be at least 12 characters long.")
+        else:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail_message)
 
     db.refresh(user)
     user = db.execute(
